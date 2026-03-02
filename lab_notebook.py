@@ -12,14 +12,14 @@
 # MAGIC
 # MAGIC | Step | What you'll do |
 # MAGIC |------|----------------|
-# MAGIC | **Setup** | Create a Unity Catalog schema and volume, then generate synthetic sales data |
+# MAGIC | **Setup** | Create Unity Catalog schemas and volumes for dev and prod, then generate synthetic sales data |
 # MAGIC | **Part 1** | Explore three **medallion notebooks** — bronze, silver, and gold layers |
 # MAGIC | **Part 2** | Explore two **supporting task notebooks** — source validation and reporting |
 # MAGIC | **Part 3** | Learn **Lakeflow Jobs** concepts — parameters and task dependencies |
-# MAGIC | **Part 4** | Build the five-task job in the **Databricks Jobs UI** |
-# MAGIC | **Part 5** | Learn **Databricks Asset Bundles (DABs)** and export your job to `databricks.yml` |
-# MAGIC | **Part 6** | Deploy everything with `databricks bundle deploy` |
-# MAGIC | **Part 7** | Run the job with custom parameters and verify the output |
+# MAGIC | **Part 4** | Build the five-task job in the **Databricks Jobs UI** and run a first test |
+# MAGIC | **Part 5** | Learn **Databricks Asset Bundles (DABs)**, configure dev and prod targets, fill in `databricks.yml` |
+# MAGIC | **Part 6** | Deploy to **dev** with `databricks bundle deploy` from the terminal |
+# MAGIC | **Part 7** | Run the bundle-managed job, verify results, and promote to **prod** |
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -37,15 +37,16 @@
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Setup — Create Schema, Volume & Sample Data
+# MAGIC ## Setup — Create Schemas, Volumes & Sample Data
 # MAGIC
-# MAGIC The cell below bootstraps everything the pipeline needs:
+# MAGIC The cell below bootstraps everything the pipeline needs for both environments:
 # MAGIC
-# MAGIC 1. Creates the catalog schema `workspace.lakeflow_lab`
-# MAGIC 2. Creates a Unity Catalog **Volume** at `workspace.lakeflow_lab.raw_data`
+# MAGIC 1. Creates two Unity Catalog schemas — `workspace.lakeflow_lab_dev` (dev) and
+# MAGIC    `workspace.lakeflow_lab` (prod)
+# MAGIC 2. Creates a Unity Catalog **Volume** named `raw_data` inside each schema
 # MAGIC    (a Volume is a managed directory that holds non-tabular files such as CSVs)
-# MAGIC 3. Generates **500 synthetic e-commerce orders** spanning three months and writes them
-# MAGIC    as a CSV file into the volume
+# MAGIC 3. Generates **500 synthetic e-commerce orders** spanning three months and writes the
+# MAGIC    CSV into each volume so either environment can be used independently
 # MAGIC
 # MAGIC Run this cell once before proceeding to Part 1.
 
@@ -56,18 +57,12 @@ import random
 from datetime import datetime, timedelta
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-CATALOG = "workspace"
-SCHEMA  = "lakeflow_lab"
-VOLUME  = "raw_data"
+CATALOG  = "workspace"
+SCHEMAS  = ["lakeflow_lab_dev", "lakeflow_lab"]   # dev and prod schemas
+VOLUME   = "raw_data"
 # ──────────────────────────────────────────────────────────────────────────────
 
-# 1. Create schema and volume
-spark.sql(f"CREATE SCHEMA  IF NOT EXISTS {CATALOG}.{SCHEMA}")
-spark.sql(f"CREATE VOLUME  IF NOT EXISTS {CATALOG}.{SCHEMA}.{VOLUME}")
-print(f"✅  Schema  : {CATALOG}.{SCHEMA}")
-print(f"✅  Volume  : {CATALOG}.{SCHEMA}.{VOLUME}")
-
-# 2. Generate synthetic orders ─────────────────────────────────────────────────
+# 1. Generate synthetic orders ─────────────────────────────────────────────────
 random.seed(42)
 
 PRODUCTS = [
@@ -104,15 +99,19 @@ for i in range(500):
     })
 
 df = pd.DataFrame(orders)
+print(f"Generated {len(df):,} synthetic orders\n")
 
-# 3. Write CSV to the volume ───────────────────────────────────────────────────
-volume_path = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"
-csv_path    = f"{volume_path}/orders.csv"
-df.to_csv(f"/dbfs{csv_path}", index=False)
+# 2. Create schemas, volumes, and write CSV for each environment ───────────────
+for SCHEMA in SCHEMAS:
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
+    spark.sql(f"CREATE VOLUME  IF NOT EXISTS {CATALOG}.{SCHEMA}.{VOLUME}")
+    volume_path = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}/orders.csv"
+    df.to_csv(volume_path, index=False)
+    print(f"✅  Schema  : {CATALOG}.{SCHEMA}")
+    print(f"✅  Volume  : {CATALOG}.{SCHEMA}.{VOLUME}")
+    print(f"📁  Written → {volume_path}\n")
 
-print(f"\n✅  Generated {len(df):,} orders")
-print(f"📁  Written  → {csv_path}")
-print(f"\nSample rows:")
+print("Sample rows:")
 display(df.head(5))
 
 # COMMAND ----------
@@ -213,7 +212,7 @@ display(df.head(5))
 # MAGIC
 # MAGIC | Context | How the value is resolved |
 # MAGIC |---------|--------------------------|
-# MAGIC | Running as a **job task** | The value from `base_parameters` in the job definition |
+# MAGIC | Running as a **job task** | The job parameter value, pushed down automatically to the notebook |
 # MAGIC | Running **interactively** | The default declared in `dbutils.widgets.text()` |
 # MAGIC
 # MAGIC This means **the same notebook works in both contexts with no code changes**.
@@ -262,6 +261,11 @@ display(df.head(5))
 # MAGIC | **Override via** | `databricks bundle deploy --var foo=bar` | UI "Run with different parameters" or CLI `-p` flag |
 # MAGIC | **Consumed by** | YAML expressions (`${var.catalog}`) | Notebooks (`dbutils.widgets.get("run_date")`) |
 # MAGIC
+# MAGIC > **Connecting the two:** In Part 5 you'll set the `schema` job parameter's default
+# MAGIC > value to `${var.schema}`.  That single change makes the schema environment-aware —
+# MAGIC > deploying to `dev` automatically targets `lakeflow_lab_dev`, and deploying to `prod`
+# MAGIC > automatically targets `lakeflow_lab`.
+# MAGIC
 # MAGIC In our job we'll declare three parameters:
 # MAGIC
 # MAGIC | Parameter | Default | Purpose |
@@ -269,10 +273,6 @@ display(df.head(5))
 # MAGIC | `run_date` | `2024-03-31` | Stamped on reporting output rows |
 # MAGIC | `catalog` | `workspace` | Unity Catalog catalog name |
 # MAGIC | `schema` | `lakeflow_lab` | Unity Catalog schema name |
-# MAGIC
-# MAGIC Each notebook task **forwards** the relevant job parameters into the notebook via
-# MAGIC `base_parameters`.  The pipeline notebooks only need `catalog` and `schema`; the
-# MAGIC validation and reporting notebooks also need `run_date`.
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -316,6 +316,18 @@ display(df.head(5))
 # MAGIC Now you'll create the five-task job by hand in the UI.  This gives you a feel for
 # MAGIC the job structure before you see it expressed as code.
 # MAGIC
+# MAGIC ### Job configuration options
+# MAGIC
+# MAGIC When setting up a job in the UI, two configuration tabs are worth exploring beyond
+# MAGIC tasks and parameters:
+# MAGIC
+# MAGIC | Option | What it does | When to use it |
+# MAGIC |--------|-------------|----------------|
+# MAGIC | **Schedule** | Runs the job automatically on a cron-based schedule | Daily ETL, regular reporting, SLA-driven pipelines |
+# MAGIC | **Notifications** | Sends email or webhook alerts on job success, failure, or skips | Keeping your team informed without manual monitoring |
+# MAGIC
+# MAGIC You'll configure both in Step 4d below.
+# MAGIC
 # MAGIC ### Step 4a — Create a new job
 # MAGIC
 # MAGIC 1. Click **Workflows** in the left sidebar
@@ -348,21 +360,18 @@ display(df.head(5))
 # MAGIC | `catalog` | `workspace` |
 # MAGIC | `schema` | `lakeflow_lab` |
 # MAGIC
-# MAGIC ### Step 4d — Forward parameters to each task
+# MAGIC ### Step 4d — Add a schedule and notifications
 # MAGIC
-# MAGIC For each task, open its settings and add **Base parameters** so the notebook
-# MAGIC receives the job-level values at runtime.
+# MAGIC **Schedule — run daily at 6 AM:**
+# MAGIC 1. Click the **Schedules & Triggers** tab on the job page
+# MAGIC 2. Click **Add a schedule**
+# MAGIC 3. Set the schedule to **Every day at 06:00 AM** (or enter cron: `0 0 6 * * ?`)
+# MAGIC 4. Click **Save**
 # MAGIC
-# MAGIC The `{{job.parameters.X}}` syntax is evaluated at **run time** — it tells the job
-# MAGIC to substitute the live parameter value when the task starts.
-# MAGIC
-# MAGIC | Task | Base parameters to add |
-# MAGIC |------|------------------------|
-# MAGIC | `validate_source` | `run_date = {{job.parameters.run_date}}`, `catalog = {{job.parameters.catalog}}`, `schema = {{job.parameters.schema}}` |
-# MAGIC | `bronze` | `catalog = {{job.parameters.catalog}}`, `schema = {{job.parameters.schema}}` |
-# MAGIC | `silver` | `catalog = {{job.parameters.catalog}}`, `schema = {{job.parameters.schema}}` |
-# MAGIC | `gold` | `catalog = {{job.parameters.catalog}}`, `schema = {{job.parameters.schema}}` |
-# MAGIC | `run_reporting` | `run_date = {{job.parameters.run_date}}`, `catalog = {{job.parameters.catalog}}`, `schema = {{job.parameters.schema}}` |
+# MAGIC **Email notification on failure:**
+# MAGIC 1. Click the **Notifications** tab on the job page
+# MAGIC 2. Under **On failure**, click **Add notification** and enter your email address
+# MAGIC 3. Click **Save**
 # MAGIC
 # MAGIC ### Step 4e — Verify the DAG
 # MAGIC
@@ -370,7 +379,42 @@ display(df.head(5))
 # MAGIC arrows.  If any task is floating (no incoming or outgoing arrow where expected),
 # MAGIC check its **Depends on** setting.
 # MAGIC
-# MAGIC > **Do not run the job yet** — you'll do that in Part 7 after deploying via DABs.
+# MAGIC ### Step 4f — Run the job and verify
+# MAGIC
+# MAGIC Click **Run now** to trigger a test run.  Watch each task progress through the DAG —
+# MAGIC tasks turn green one at a time as each finishes before the next begins.
+# MAGIC
+# MAGIC Once all five tasks show green checkmarks, run the cell below to confirm every
+# MAGIC table was created correctly.
+
+# COMMAND ----------
+
+CATALOG = "workspace"
+SCHEMA  = "lakeflow_lab"
+
+expected_tables = [
+    "bronze_orders",
+    "silver_orders",
+    "gold_sales_by_region",
+    "gold_top_products",
+    "reporting_summary",
+]
+
+print("=== Part 4 verification ===\n")
+all_ok = True
+for tbl in expected_tables:
+    try:
+        n = spark.table(f"{CATALOG}.{SCHEMA}.{tbl}").count()
+        print(f"  ✅  {tbl:<30} {n:>6,} rows")
+    except Exception:
+        print(f"  ❌  {tbl:<30} not found")
+        all_ok = False
+
+print()
+if all_ok:
+    print("All tables present — job is working correctly. Proceed to Part 5.")
+else:
+    print("Some tables are missing — has the job finished running?")
 
 # COMMAND ----------
 
@@ -390,10 +434,19 @@ display(df.head(5))
 # MAGIC bundle:
 # MAGIC   name: my-bundle
 # MAGIC
-# MAGIC targets:          # Deployment environments (dev / staging / prod)
+# MAGIC variables:
+# MAGIC   schema:
+# MAGIC     default: lakeflow_lab
+# MAGIC
+# MAGIC targets:
 # MAGIC   dev:
 # MAGIC     mode: development
 # MAGIC     default: true
+# MAGIC     variables:
+# MAGIC       schema: lakeflow_lab_dev   # dev writes to lakeflow_lab_dev
+# MAGIC   prod:
+# MAGIC     variables:
+# MAGIC       schema: lakeflow_lab       # prod writes to lakeflow_lab
 # MAGIC
 # MAGIC resources:        # ← Declare jobs, pipelines, etc. here
 # MAGIC   jobs: ...
@@ -406,7 +459,7 @@ display(df.head(5))
 # MAGIC | **Bundle** | A project containing code + YAML resource definitions |
 # MAGIC | **Target** | A named deployment environment (`dev`, `staging`, `prod`) |
 # MAGIC | **`mode: development`** | Prefixes resource names with `[dev username]` so devs don't collide |
-# MAGIC | **Variables** | Bundle-level parameters — resolved at deploy time |
+# MAGIC | **Variables** | Bundle-level parameters — resolved at deploy time; can be overridden per target |
 # MAGIC | **`bundle deploy`** | Syncs files and creates/updates workspace resources |
 # MAGIC | **`bundle run`** | Triggers a job defined in the bundle |
 # MAGIC
@@ -422,17 +475,19 @@ display(df.head(5))
 # MAGIC 4. Open the downloaded `.yml` file — it contains the full job definition in DABs format
 # MAGIC
 # MAGIC > **What you'll see:** The exported YAML has the same structure as
-# MAGIC > `resources/job_definition_template.yml` — tasks, `depends_on`, parameters, and
-# MAGIC > `base_parameters` are all represented as YAML keys.
+# MAGIC > `resources/job_definition_template.yml` — tasks, `depends_on`, parameters, schedules,
+# MAGIC > and notification settings are all represented as YAML keys.
 # MAGIC
 # MAGIC ---
 # MAGIC
 # MAGIC ### Step 5b — Inspect the current `databricks.yml`
-
-# COMMAND ----------
-
-with open("./databricks.yml") as f:
-    print(f.read())
+# MAGIC
+# MAGIC Open `databricks.yml` from the file tree on the left (click the file to view it).
+# MAGIC
+# MAGIC Notice it already has a `variables` section (`catalog`, `schema`) and a `targets` section
+# MAGIC with both `dev` and `prod` entries.  The `dev` target overrides `schema` to
+# MAGIC `lakeflow_lab_dev`; the `prod` target inherits the default `lakeflow_lab`.
+# MAGIC Your task in Step 5c is to fill in the empty `resources:` section.
 
 # COMMAND ----------
 
@@ -446,9 +501,32 @@ with open("./databricks.yml") as f:
 # MAGIC - **Paste the exported YAML** directly into the `resources:` section, or
 # MAGIC - **Use the annotated template** in `resources/job_definition_template.yml` as a reference
 # MAGIC
-# MAGIC When complete, the top-level structure should look like:
+# MAGIC One important change to make after pasting: update the `catalog` and `schema` parameter
+# MAGIC defaults to use bundle variables so the job automatically targets the right schema for
+# MAGIC each deployment environment.
+# MAGIC
+# MAGIC When complete, the full `databricks.yml` should look like:
 # MAGIC
 # MAGIC ```yaml
+# MAGIC bundle:
+# MAGIC   name: lakeflow-jobs-ci-cd-lab
+# MAGIC
+# MAGIC variables:
+# MAGIC   catalog:
+# MAGIC     default: workspace
+# MAGIC   schema:
+# MAGIC     default: lakeflow_lab
+# MAGIC
+# MAGIC targets:
+# MAGIC   dev:
+# MAGIC     mode: development
+# MAGIC     default: true
+# MAGIC     variables:
+# MAGIC       schema: lakeflow_lab_dev
+# MAGIC   prod:
+# MAGIC     variables:
+# MAGIC       schema: lakeflow_lab
+# MAGIC
 # MAGIC resources:
 # MAGIC
 # MAGIC   jobs:
@@ -459,9 +537,17 @@ with open("./databricks.yml") as f:
 # MAGIC         - name: run_date
 # MAGIC           default: "2024-03-31"
 # MAGIC         - name: catalog
-# MAGIC           default: workspace
+# MAGIC           default: ${var.catalog}      # resolved at deploy time from variables
 # MAGIC         - name: schema
-# MAGIC           default: lakeflow_lab
+# MAGIC           default: ${var.schema}       # lakeflow_lab_dev (dev) or lakeflow_lab (prod)
+# MAGIC
+# MAGIC       schedule:
+# MAGIC         quartz_cron_expression: "0 0 6 * * ?"
+# MAGIC         timezone_id: "UTC"
+# MAGIC
+# MAGIC       email_notifications:
+# MAGIC         on_failure:
+# MAGIC           - your-email@example.com
 # MAGIC
 # MAGIC       tasks:
 # MAGIC
@@ -469,10 +555,6 @@ with open("./databricks.yml") as f:
 # MAGIC           notebook_task:
 # MAGIC             notebook_path: ./validation/source_validation_notebook
 # MAGIC             source: WORKSPACE
-# MAGIC             base_parameters:
-# MAGIC               run_date: "{{job.parameters.run_date}}"
-# MAGIC               catalog:  "{{job.parameters.catalog}}"
-# MAGIC               schema:   "{{job.parameters.schema}}"
 # MAGIC
 # MAGIC         - task_key: bronze                 # Task 2 — depends on Task 1
 # MAGIC           depends_on:
@@ -480,9 +562,6 @@ with open("./databricks.yml") as f:
 # MAGIC           notebook_task:
 # MAGIC             notebook_path: ./pipeline/bronze_notebook
 # MAGIC             source: WORKSPACE
-# MAGIC             base_parameters:
-# MAGIC               catalog: "{{job.parameters.catalog}}"
-# MAGIC               schema:  "{{job.parameters.schema}}"
 # MAGIC
 # MAGIC         - task_key: silver                 # Task 3 — depends on Task 2
 # MAGIC           depends_on:
@@ -490,9 +569,6 @@ with open("./databricks.yml") as f:
 # MAGIC           notebook_task:
 # MAGIC             notebook_path: ./pipeline/silver_notebook
 # MAGIC             source: WORKSPACE
-# MAGIC             base_parameters:
-# MAGIC               catalog: "{{job.parameters.catalog}}"
-# MAGIC               schema:  "{{job.parameters.schema}}"
 # MAGIC
 # MAGIC         - task_key: gold                   # Task 4 — depends on Task 3
 # MAGIC           depends_on:
@@ -500,9 +576,6 @@ with open("./databricks.yml") as f:
 # MAGIC           notebook_task:
 # MAGIC             notebook_path: ./pipeline/gold_notebook
 # MAGIC             source: WORKSPACE
-# MAGIC             base_parameters:
-# MAGIC               catalog: "{{job.parameters.catalog}}"
-# MAGIC               schema:  "{{job.parameters.schema}}"
 # MAGIC
 # MAGIC         - task_key: run_reporting          # Task 5 — depends on Task 4
 # MAGIC           depends_on:
@@ -510,51 +583,36 @@ with open("./databricks.yml") as f:
 # MAGIC           notebook_task:
 # MAGIC             notebook_path: ./analysis/reporting_notebook
 # MAGIC             source: WORKSPACE
-# MAGIC             base_parameters:
-# MAGIC               run_date: "{{job.parameters.run_date}}"
-# MAGIC               catalog:  "{{job.parameters.catalog}}"
-# MAGIC               schema:   "{{job.parameters.schema}}"
 # MAGIC ```
 # MAGIC
 # MAGIC **Things to notice:**
-# MAGIC - `parameters` is at the **job level**; `base_parameters` is at the **task level**
-# MAGIC - The pipeline tasks (`bronze`, `silver`, `gold`) only receive `catalog` and `schema` —
-# MAGIC   they don't need `run_date` because they always process the full dataset
-# MAGIC - `{{job.parameters.*}}` (run time) vs `${var.*}` (deploy time) are intentionally different
+# MAGIC - `${var.schema}` in the job parameter default is resolved at **deploy time** — deploying
+# MAGIC   to `dev` bakes in `lakeflow_lab_dev`; deploying to `prod` bakes in `lakeflow_lab`
+# MAGIC - Job parameters are then pushed down automatically to all notebook tasks at **run time**
+# MAGIC - `schedule` and `email_notifications` are top-level job keys — replace
+# MAGIC   `your-email@example.com` with your address
 # MAGIC
 # MAGIC ### Step 5d — Validate the bundle
-
-# COMMAND ----------
-
-import subprocess, os
-
-notebook_path = (
-    dbutils.notebook.entry_point
-    .getDbutils().notebook().getContext()
-    .notebookPath().get()
-)
-
-bundle_root = "/Workspace" + "/".join(notebook_path.split("/")[:-1])
-print(f"Bundle root: {bundle_root}\n")
-
-result = subprocess.run(
-    ["databricks", "bundle", "validate", "--target", "dev"],
-    cwd=bundle_root,
-    capture_output=True,
-    text=True,
-)
-print(result.stdout)
-if result.returncode != 0:
-    print("STDERR:", result.stderr)
-    print("\n⚠  Validation failed — check the errors above and fix databricks.yml")
-else:
-    print("✅  Bundle is valid — proceed to Part 6")
+# MAGIC
+# MAGIC DABs CLI commands must be run from a terminal, not from inside a serverless notebook.
+# MAGIC Open a web terminal in your Databricks workspace:
+# MAGIC **Workspace** → navigate to your Git Folder → right-click → **Open in terminal**
+# MAGIC (or use the terminal icon at the bottom of the screen if your IDE supports it).
+# MAGIC
+# MAGIC From the terminal, `cd` to your Git Folder root if needed, then run:
+# MAGIC
+# MAGIC ```bash
+# MAGIC databricks bundle validate --target dev
+# MAGIC ```
+# MAGIC
+# MAGIC A valid bundle prints a JSON summary of the resolved resources with no errors.
+# MAGIC Fix any YAML errors flagged before proceeding.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 6 — Deploy with `databricks bundle deploy`
+# MAGIC ## Part 6 — Deploy to Dev with `databricks bundle deploy`
 # MAGIC
 # MAGIC ### What does `bundle deploy` do?
 # MAGIC
@@ -565,23 +623,14 @@ else:
 # MAGIC 3. **Prefixes names** — in `dev` mode, resource names are prefixed with
 # MAGIC    `[dev your@email.com]` so your dev resources don't collide with colleagues'
 # MAGIC
-# MAGIC Run the cell below to deploy.
-
-# COMMAND ----------
-
-result = subprocess.run(
-    ["databricks", "bundle", "deploy", "--target", "dev"],
-    cwd=bundle_root,
-    capture_output=True,
-    text=True,
-)
-print(result.stdout)
-if result.returncode != 0:
-    print("STDERR:", result.stderr)
-    raise Exception("Bundle deploy failed — see errors above")
-else:
-    print("✅  Bundle deployed successfully!")
-    print("\nNext: go to Workflows in the Databricks UI to see your new job.")
+# MAGIC In the same terminal you opened in Step 5d, run:
+# MAGIC
+# MAGIC ```bash
+# MAGIC databricks bundle deploy --target dev
+# MAGIC ```
+# MAGIC
+# MAGIC You should see output confirming that files were uploaded and the job was created or
+# MAGIC updated.  Once it completes, proceed to Part 7.
 
 # COMMAND ----------
 
@@ -595,37 +644,38 @@ else:
 # MAGIC 2. Find **`[dev your@email.com] Lakeflow Lab - Orchestration Job`** and open it
 # MAGIC 3. Click the **Tasks** tab — you should see all five tasks connected by arrows:
 # MAGIC    `validate_source` → `bronze` → `silver` → `gold` → `run_reporting`
-# MAGIC 4. Click the **Parameters** tab — you should see `run_date`, `catalog`, `schema`
-# MAGIC    with their default values
+# MAGIC 4. Click the **Parameters** tab — confirm `schema` defaults to `lakeflow_lab_dev`
+# MAGIC    (the dev target variable was baked in at deploy time)
 # MAGIC
 # MAGIC ### Run with the default parameters
 # MAGIC
-# MAGIC Click **Run now** and watch the tasks execute one at a time.  Notice each task only
-# MAGIC starts once the previous one shows a green checkmark.
+# MAGIC Click **Run now** and watch the tasks execute one at a time.  This run writes to
+# MAGIC `workspace.lakeflow_lab_dev` — your isolated dev schema.
 # MAGIC
-# MAGIC ### Run with overridden parameters
+# MAGIC ### Run with an overridden run_date
 # MAGIC
 # MAGIC 1. Click **Run now** → **"Run now with different parameters"**
 # MAGIC 2. Change `run_date` to `2024-02-15` and click **Run**
 # MAGIC 3. After the job finishes, query `reporting_summary` below — you should see
 # MAGIC    `run_date = 2024-02-15` stamped on the row
 # MAGIC
-# MAGIC ### Or trigger from the CLI
+# MAGIC ### Or trigger from the terminal
 # MAGIC
 # MAGIC ```bash
 # MAGIC databricks bundle run lakeflow_lab_job --target dev \
-# MAGIC   --python-params '{"run_date": "2024-02-15"}'
+# MAGIC   -p run_date=2024-02-15
 # MAGIC ```
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Verify the output
+# MAGIC ### Verify the dev run output
 
 # COMMAND ----------
 
+# Dev job writes to lakeflow_lab_dev
 CATALOG = "workspace"
-SCHEMA  = "lakeflow_lab"
+SCHEMA  = "lakeflow_lab_dev"
 
 expected_tables = [
     "bronze_orders",
@@ -635,7 +685,7 @@ expected_tables = [
     "reporting_summary",
 ]
 
-print("=== Final verification ===\n")
+print("=== Part 7 verification (dev) ===\n")
 all_ok = True
 for tbl in expected_tables:
     try:
@@ -647,7 +697,7 @@ for tbl in expected_tables:
 
 print()
 if all_ok:
-    print("All tables present — lab complete!")
+    print(f"All tables present in {CATALOG}.{SCHEMA} — dev run successful!")
 else:
     print("Some tables are missing — has the job finished running?")
 
@@ -656,6 +706,28 @@ else:
 # Inspect reporting_summary — confirm run_date was stamped by the job parameter
 print("reporting_summary (should include the run_date parameter value):")
 display(spark.table(f"{CATALOG}.{SCHEMA}.reporting_summary"))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Promote to prod
+# MAGIC
+# MAGIC Once you're satisfied the dev run is correct, deploy and run the job for the `prod`
+# MAGIC target.  The prod job writes to `workspace.lakeflow_lab` (no `[dev ...]` name prefix).
+# MAGIC
+# MAGIC In the terminal:
+# MAGIC
+# MAGIC ```bash
+# MAGIC # Deploy the job to the prod target
+# MAGIC databricks bundle deploy --target prod
+# MAGIC
+# MAGIC # Run it with the default parameters
+# MAGIC databricks bundle run lakeflow_lab_job --target prod
+# MAGIC ```
+# MAGIC
+# MAGIC > **Note:** The prod target has no `mode: development`, so resource names are not
+# MAGIC > prefixed and the job will be visible to everyone with access to the workspace.
+# MAGIC > Make sure the pipeline is working correctly before promoting.
 
 # COMMAND ----------
 
@@ -677,9 +749,10 @@ display(spark.table(f"{CATALOG}.{SCHEMA}.reporting_summary"))
 # MAGIC  └── analysis/
 # MAGIC      └── reporting_notebook.py
 # MAGIC
-# MAGIC  databricks bundle deploy
+# MAGIC  databricks bundle deploy --target dev   → schema = lakeflow_lab_dev
+# MAGIC  databricks bundle deploy --target prod  → schema = lakeflow_lab
 # MAGIC  └── Creates: Lakeflow Job
-# MAGIC        parameters: run_date, catalog, schema
+# MAGIC        parameters: run_date, catalog, schema (default from ${var.schema})
 # MAGIC        │
 # MAGIC        ├── Task 1: validate_source  (no dependency)
 # MAGIC        ├── Task 2: bronze           (depends_on: validate_source)
@@ -690,13 +763,12 @@ display(spark.table(f"{CATALOG}.{SCHEMA}.reporting_summary"))
 # MAGIC
 # MAGIC ### What to explore next
 # MAGIC
-# MAGIC - **Multiple targets** — add a `prod` target to `databricks.yml` and promote with
-# MAGIC   `databricks bundle deploy --target prod`
-# MAGIC - **CI/CD pipeline** — trigger `bundle deploy` from GitHub Actions or Azure DevOps
-# MAGIC   on every merge to `main`
-# MAGIC - **Schedules** — add a `schedule` block to your job definition to run on a cron
+# MAGIC - **CI/CD pipeline** — trigger `bundle deploy --target prod` from GitHub Actions or
+# MAGIC   Azure DevOps on every merge to `main` for fully automated promotion
+# MAGIC - **Staging target** — add a third `staging` target between dev and prod with its own
+# MAGIC   schema, giving you a three-tier promotion pipeline
 # MAGIC - **Fan-out dependencies** — add a second reporting task that also `depends_on: gold`
 # MAGIC   to run two downstream notebooks in parallel after the gold layer completes
-# MAGIC - **Alerts & notifications** — add `email_notifications` or webhook alerts to the job
+# MAGIC - **Webhook notifications** — add a system or Slack webhook alongside email for richer alerting
 
 # COMMAND ----------

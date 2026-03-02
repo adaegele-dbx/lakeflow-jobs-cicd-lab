@@ -13,6 +13,12 @@ targets:
   dev:
     mode: development
     default: true
+    variables:
+      schema: lakeflow_lab_dev   # dev writes to its own isolated schema
+
+  prod:
+    variables:
+      schema: lakeflow_lab       # prod writes to the canonical schema
 
 # =============================================================================
 # RESOURCES — Complete this section during Part 4 of the lab!

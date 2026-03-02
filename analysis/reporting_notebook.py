@@ -21,8 +21,7 @@
 # MAGIC ## Parameters
 # MAGIC
 # MAGIC The job passes `catalog`, `schema`, and `run_date` into this notebook at runtime via
-# MAGIC the `base_parameters` field in the job's task definition.  Default values are used
-# MAGIC when running interactively or via `%run`.
+# MAGIC job parameter pushdown.  Default values are used when running interactively or via `%run`.
 
 # COMMAND ----------
 

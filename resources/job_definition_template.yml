@@ -21,8 +21,10 @@
 #   run_reporting
 #        depends_on: gold
 #
-# Job-level parameters (run_date, catalog, schema) are defined once.
-# Each task receives only the parameters it needs via base_parameters.
+# Job-level parameters (run_date, catalog, schema) are pushed down
+# automatically to all notebook tasks — no per-task configuration needed.
+# catalog and schema use ${var.*} so the correct environment schema is selected
+# automatically based on the target (dev → lakeflow_lab_dev, prod → lakeflow_lab).
 # =============================================================================
 
 resources:
@@ -34,7 +36,7 @@ resources:
       # -----------------------------------------------------------------------
       # Job-level parameters
       #
-      # Defined once here; forwarded to individual tasks via base_parameters.
+      # Pushed down automatically to all notebook tasks at run time.
       # Override at run time in the UI ("Run now with different parameters")
       # or via the CLI:
       #   databricks bundle run lakeflow_lab_job --target dev \
@@ -44,16 +46,23 @@ resources:
         - name: run_date
           default: "2024-03-31"
         - name: catalog
-          default: workspace
+          default: ${var.catalog}   # resolved at deploy time
         - name: schema
-          default: lakeflow_lab
+          default: ${var.schema}    # lakeflow_lab_dev (dev) or lakeflow_lab (prod)
 
-      # Optional: notify on job completion
-      # email_notifications:
-      #   on_success:
-      #     - your-email@example.com
-      #   on_failure:
-      #     - your-email@example.com
+      # -----------------------------------------------------------------------
+      # Schedule — runs daily at 6 AM UTC
+      # -----------------------------------------------------------------------
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "UTC"
+
+      # -----------------------------------------------------------------------
+      # Notifications — email on failure
+      # -----------------------------------------------------------------------
+      email_notifications:
+        on_failure:
+          - your-email@example.com
 
       tasks:
 
@@ -67,10 +76,6 @@ resources:
           notebook_task:
             notebook_path: ./validation/source_validation_notebook
             source: WORKSPACE
-            base_parameters:
-              run_date: "{{job.parameters.run_date}}"
-              catalog:  "{{job.parameters.catalog}}"
-              schema:   "{{job.parameters.schema}}"
 
         # -----------------------------------------------------------------------
         # Task 2 — Bronze: raw ingestion
@@ -85,9 +90,6 @@ resources:
           notebook_task:
             notebook_path: ./pipeline/bronze_notebook
             source: WORKSPACE
-            base_parameters:
-              catalog: "{{job.parameters.catalog}}"
-              schema:  "{{job.parameters.schema}}"
 
         # -----------------------------------------------------------------------
         # Task 3 — Silver: cleanse & transform
@@ -101,9 +103,6 @@ resources:
           notebook_task:
             notebook_path: ./pipeline/silver_notebook
             source: WORKSPACE
-            base_parameters:
-              catalog: "{{job.parameters.catalog}}"
-              schema:  "{{job.parameters.schema}}"
 
         # -----------------------------------------------------------------------
         # Task 4 — Gold: business aggregations
@@ -117,9 +116,6 @@ resources:
           notebook_task:
             notebook_path: ./pipeline/gold_notebook
             source: WORKSPACE
-            base_parameters:
-              catalog: "{{job.parameters.catalog}}"
-              schema:  "{{job.parameters.schema}}"
 
         # -----------------------------------------------------------------------
         # Task 5 — Reporting
@@ -133,8 +129,4 @@ resources:
           notebook_task:
             notebook_path: ./analysis/reporting_notebook
             source: WORKSPACE
-            base_parameters:
-              run_date: "{{job.parameters.run_date}}"
-              catalog:  "{{job.parameters.catalog}}"
-              schema:   "{{job.parameters.schema}}"
           # Serverless compute — no cluster definition needed on free tier
