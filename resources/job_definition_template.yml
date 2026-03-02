@@ -44,7 +44,7 @@ resources:
         - name: run_date
           default: "2024-03-31"
         - name: catalog
-          default: main
+          default: workspace
         - name: schema
           default: lakeflow_lab
 

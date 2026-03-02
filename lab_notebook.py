@@ -41,8 +41,8 @@
 # MAGIC
 # MAGIC The cell below bootstraps everything the pipeline needs:
 # MAGIC
-# MAGIC 1. Creates the catalog schema `main.lakeflow_lab`
-# MAGIC 2. Creates a Unity Catalog **Volume** at `main.lakeflow_lab.raw_data`
+# MAGIC 1. Creates the catalog schema `workspace.lakeflow_lab`
+# MAGIC 2. Creates a Unity Catalog **Volume** at `workspace.lakeflow_lab.raw_data`
 # MAGIC    (a Volume is a managed directory that holds non-tabular files such as CSVs)
 # MAGIC 3. Generates **500 synthetic e-commerce orders** spanning three months and writes them
 # MAGIC    as a CSV file into the volume
@@ -56,7 +56,7 @@ import random
 from datetime import datetime, timedelta
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-CATALOG = "main"
+CATALOG = "workspace"
 SCHEMA  = "lakeflow_lab"
 VOLUME  = "raw_data"
 # ──────────────────────────────────────────────────────────────────────────────
@@ -200,7 +200,7 @@ display(df.head(5))
 # MAGIC Look at the top section.  You'll see this pattern:
 # MAGIC
 # MAGIC ```python
-# MAGIC dbutils.widgets.text("catalog",  "main",        "Catalog")
+# MAGIC dbutils.widgets.text("catalog",  "workspace",   "Catalog")
 # MAGIC dbutils.widgets.text("schema",   "lakeflow_lab", "Schema")
 # MAGIC dbutils.widgets.text("run_date", "2024-03-31",   "Run Date (YYYY-MM-DD)")
 # MAGIC
@@ -267,7 +267,7 @@ display(df.head(5))
 # MAGIC | Parameter | Default | Purpose |
 # MAGIC |-----------|---------|---------|
 # MAGIC | `run_date` | `2024-03-31` | Stamped on reporting output rows |
-# MAGIC | `catalog` | `main` | Unity Catalog catalog name |
+# MAGIC | `catalog` | `workspace` | Unity Catalog catalog name |
 # MAGIC | `schema` | `lakeflow_lab` | Unity Catalog schema name |
 # MAGIC
 # MAGIC Each notebook task **forwards** the relevant job parameters into the notebook via
@@ -345,7 +345,7 @@ display(df.head(5))
 # MAGIC | Name | Default value |
 # MAGIC |------|---------------|
 # MAGIC | `run_date` | `2024-03-31` |
-# MAGIC | `catalog` | `main` |
+# MAGIC | `catalog` | `workspace` |
 # MAGIC | `schema` | `lakeflow_lab` |
 # MAGIC
 # MAGIC ### Step 4d — Forward parameters to each task
@@ -459,7 +459,7 @@ with open("./databricks.yml") as f:
 # MAGIC         - name: run_date
 # MAGIC           default: "2024-03-31"
 # MAGIC         - name: catalog
-# MAGIC           default: main
+# MAGIC           default: workspace
 # MAGIC         - name: schema
 # MAGIC           default: lakeflow_lab
 # MAGIC
@@ -624,7 +624,7 @@ else:
 
 # COMMAND ----------
 
-CATALOG = "main"
+CATALOG = "workspace"
 SCHEMA  = "lakeflow_lab"
 
 expected_tables = [

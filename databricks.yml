@@ -3,7 +3,7 @@ bundle:
 
 variables:
   catalog:
-    default: main
+    default: workspace
     description: The Unity Catalog catalog to deploy resources into
   schema:
     default: lakeflow_lab

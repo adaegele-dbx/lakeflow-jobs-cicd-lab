@@ -20,7 +20,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog", "main",        "Catalog")
+dbutils.widgets.text("catalog", "workspace",   "Catalog")
 dbutils.widgets.text("schema",  "lakeflow_lab", "Schema")
 
 catalog = dbutils.widgets.get("catalog")

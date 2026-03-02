@@ -26,7 +26,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog",  "main",        "Catalog")
+dbutils.widgets.text("catalog",  "workspace",   "Catalog")
 dbutils.widgets.text("schema",   "lakeflow_lab", "Schema")
 dbutils.widgets.text("run_date", "2024-03-31",   "Run Date (YYYY-MM-DD)")
 
