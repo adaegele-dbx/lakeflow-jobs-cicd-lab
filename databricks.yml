@@ -1,0 +1,27 @@
+bundle:
+  name: lakeflow-jobs-ci-cd-lab
+
+variables:
+  catalog:
+    default: main
+    description: The Unity Catalog catalog to deploy resources into
+  schema:
+    default: lakeflow_lab
+    description: The schema (database) to use for pipeline targets and lab tables
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+# =============================================================================
+# RESOURCES — Complete this section during Part 4 of the lab!
+#
+# You will define two resources here:
+#   1. A Lakeflow Declarative Pipeline  (resources.pipelines)
+#   2. A Lakeflow Job that orchestrates the pipeline + reporting notebook  (resources.jobs)
+#
+# See resources/job_definition_template.yml for the complete YAML to paste in,
+# or follow the step-by-step instructions in lab_notebook.py (Part 4).
+# =============================================================================
+resources:

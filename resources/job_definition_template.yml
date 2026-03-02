@@ -1,0 +1,140 @@
+# =============================================================================
+# Job Definition Template
+# =============================================================================
+# Copy the YAML below (starting at "resources:") and paste it into
+# databricks.yml, replacing the existing empty "resources:" key.
+#
+# This defines a five-task Lakeflow Job with explicit task dependencies:
+#
+#   validate_source
+#        │  depends_on: —
+#        ▼
+#   bronze
+#        │  depends_on: validate_source
+#        ▼
+#   silver
+#        │  depends_on: bronze
+#        ▼
+#   gold
+#        │  depends_on: silver
+#        ▼
+#   run_reporting
+#        depends_on: gold
+#
+# Job-level parameters (run_date, catalog, schema) are defined once.
+# Each task receives only the parameters it needs via base_parameters.
+# =============================================================================
+
+resources:
+
+  jobs:
+    lakeflow_lab_job:
+      name: "Lakeflow Lab - Orchestration Job [${bundle.target}]"
+
+      # -----------------------------------------------------------------------
+      # Job-level parameters
+      #
+      # Defined once here; forwarded to individual tasks via base_parameters.
+      # Override at run time in the UI ("Run now with different parameters")
+      # or via the CLI:
+      #   databricks bundle run lakeflow_lab_job --target dev \
+      #     -p run_date=2024-02-15
+      # -----------------------------------------------------------------------
+      parameters:
+        - name: run_date
+          default: "2024-03-31"
+        - name: catalog
+          default: main
+        - name: schema
+          default: lakeflow_lab
+
+      # Optional: notify on job completion
+      # email_notifications:
+      #   on_success:
+      #     - your-email@example.com
+      #   on_failure:
+      #     - your-email@example.com
+
+      tasks:
+
+        # -----------------------------------------------------------------------
+        # Task 1 — Validate source data
+        #
+        # No depends_on — this task starts immediately when the job runs.
+        # If it fails, all downstream tasks are automatically skipped.
+        # -----------------------------------------------------------------------
+        - task_key: validate_source
+          notebook_task:
+            notebook_path: ./validation/source_validation_notebook
+            source: WORKSPACE
+            base_parameters:
+              run_date: "{{job.parameters.run_date}}"
+              catalog:  "{{job.parameters.catalog}}"
+              schema:   "{{job.parameters.schema}}"
+
+        # -----------------------------------------------------------------------
+        # Task 2 — Bronze: raw ingestion
+        #
+        # depends_on: validate_source
+        # Reads CSV files from the volume and writes bronze_orders as a Delta
+        # table.  Starts only after validation succeeds.
+        # -----------------------------------------------------------------------
+        - task_key: bronze
+          depends_on:
+            - task_key: validate_source
+          notebook_task:
+            notebook_path: ./pipeline/bronze_notebook
+            source: WORKSPACE
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema:  "{{job.parameters.schema}}"
+
+        # -----------------------------------------------------------------------
+        # Task 3 — Silver: cleanse & transform
+        #
+        # depends_on: bronze
+        # Casts types, adds derived fields, drops duplicates and bad rows.
+        # -----------------------------------------------------------------------
+        - task_key: silver
+          depends_on:
+            - task_key: bronze
+          notebook_task:
+            notebook_path: ./pipeline/silver_notebook
+            source: WORKSPACE
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema:  "{{job.parameters.schema}}"
+
+        # -----------------------------------------------------------------------
+        # Task 4 — Gold: business aggregations
+        #
+        # depends_on: silver
+        # Produces gold_sales_by_region and gold_top_products.
+        # -----------------------------------------------------------------------
+        - task_key: gold
+          depends_on:
+            - task_key: silver
+          notebook_task:
+            notebook_path: ./pipeline/gold_notebook
+            source: WORKSPACE
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema:  "{{job.parameters.schema}}"
+
+        # -----------------------------------------------------------------------
+        # Task 5 — Reporting
+        #
+        # depends_on: gold
+        # Reads the gold tables, writes reporting_summary, stamps run_date.
+        # -----------------------------------------------------------------------
+        - task_key: run_reporting
+          depends_on:
+            - task_key: gold
+          notebook_task:
+            notebook_path: ./analysis/reporting_notebook
+            source: WORKSPACE
+            base_parameters:
+              run_date: "{{job.parameters.run_date}}"
+              catalog:  "{{job.parameters.catalog}}"
+              schema:   "{{job.parameters.schema}}"
+          # Serverless compute — no cluster definition needed on free tier
