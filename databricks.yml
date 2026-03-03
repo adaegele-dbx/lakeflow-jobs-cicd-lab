@@ -21,13 +21,12 @@ targets:
       schema: lakeflow_lab       # prod writes to the canonical schema
 
 # =============================================================================
-# RESOURCES — Complete this section during Part 4 of the lab!
+# RESOURCES — Complete this section during Part 5 of the lab!
 #
-# You will define two resources here:
-#   1. A Lakeflow Declarative Pipeline  (resources.pipelines)
-#   2. A Lakeflow Job that orchestrates the pipeline + reporting notebook  (resources.jobs)
+# You will define one resource here:
+#   A Lakeflow Job with five notebook tasks  (resources.jobs)
 #
 # See resources/job_definition_template.yml for the complete YAML to paste in,
-# or follow the step-by-step instructions in lab_notebook.py (Part 4).
+# or follow the step-by-step instructions in lab_notebook.py (Part 5).
 # =============================================================================
 resources:
