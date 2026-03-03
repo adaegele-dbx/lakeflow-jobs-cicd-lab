@@ -19,7 +19,7 @@
 # MAGIC | **Part 4** | Build the five-task job in the **Databricks Jobs UI** and run a first test |
 # MAGIC | **Part 5** | Learn **Databricks Asset Bundles (DABs)**, configure dev and prod targets, fill in `databricks.yml` |
 # MAGIC | **Part 6** | Deploy to **dev** with `databricks bundle deploy` from the terminal |
-# MAGIC | **Part 7** | Run the bundle-managed job, verify results, and promote to **prod** |
+# MAGIC | **Part 7** | Run the bundle-managed job and promote to **prod** |
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -379,42 +379,13 @@ display(df.head(5))
 # MAGIC arrows.  If any task is floating (no incoming or outgoing arrow where expected),
 # MAGIC check its **Depends on** setting.
 # MAGIC
-# MAGIC ### Step 4f — Run the job and verify
+# MAGIC ### Step 4f — Run the job
 # MAGIC
 # MAGIC Click **Run now** to trigger a test run.  Watch each task progress through the DAG —
 # MAGIC tasks turn green one at a time as each finishes before the next begins.
 # MAGIC
-# MAGIC Once all five tasks show green checkmarks, run the cell below to confirm every
-# MAGIC table was created correctly.
-
-# COMMAND ----------
-
-CATALOG = "workspace"
-SCHEMA  = "lakeflow_lab"
-
-expected_tables = [
-    "bronze_orders",
-    "silver_orders",
-    "gold_sales_by_region",
-    "gold_top_products",
-    "reporting_summary",
-]
-
-print("=== Part 4 verification ===\n")
-all_ok = True
-for tbl in expected_tables:
-    try:
-        n = spark.table(f"{CATALOG}.{SCHEMA}.{tbl}").count()
-        print(f"  ✅  {tbl:<30} {n:>6,} rows")
-    except Exception:
-        print(f"  ❌  {tbl:<30} not found")
-        all_ok = False
-
-print()
-if all_ok:
-    print("All tables present — job is working correctly. Proceed to Part 5.")
-else:
-    print("Some tables are missing — has the job finished running?")
+# MAGIC Once all five tasks show green checkmarks, the job is working correctly.
+# MAGIC Proceed to Part 5.
 
 # COMMAND ----------
 
@@ -636,7 +607,7 @@ else:
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 7 — Run the Job with Custom Parameters & Verify
+# MAGIC ## Part 7 — Run the Bundle Job & Promote to Prod
 # MAGIC
 # MAGIC ### Explore the deployed job in the UI
 # MAGIC
@@ -652,61 +623,6 @@ else:
 # MAGIC Click **Run now** and watch the tasks execute one at a time.  This run writes to
 # MAGIC `workspace.lakeflow_lab_dev` — your isolated dev schema.
 # MAGIC
-# MAGIC ### Run with an overridden run_date
-# MAGIC
-# MAGIC 1. Click **Run now** → **"Run now with different parameters"**
-# MAGIC 2. Change `run_date` to `2024-02-15` and click **Run**
-# MAGIC 3. After the job finishes, query `reporting_summary` below — you should see
-# MAGIC    `run_date = 2024-02-15` stamped on the row
-# MAGIC
-# MAGIC ### Or trigger from the terminal
-# MAGIC
-# MAGIC ```bash
-# MAGIC databricks bundle run lakeflow_lab_job --target dev \
-# MAGIC   -p run_date=2024-02-15
-# MAGIC ```
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Verify the dev run output
-
-# COMMAND ----------
-
-# Dev job writes to lakeflow_lab_dev
-CATALOG = "workspace"
-SCHEMA  = "lakeflow_lab_dev"
-
-expected_tables = [
-    "bronze_orders",
-    "silver_orders",
-    "gold_sales_by_region",
-    "gold_top_products",
-    "reporting_summary",
-]
-
-print("=== Part 7 verification (dev) ===\n")
-all_ok = True
-for tbl in expected_tables:
-    try:
-        n = spark.table(f"{CATALOG}.{SCHEMA}.{tbl}").count()
-        print(f"  ✅  {tbl:<30} {n:>6,} rows")
-    except Exception:
-        print(f"  ❌  {tbl:<30} not found")
-        all_ok = False
-
-print()
-if all_ok:
-    print(f"All tables present in {CATALOG}.{SCHEMA} — dev run successful!")
-else:
-    print("Some tables are missing — has the job finished running?")
-
-# COMMAND ----------
-
-# Inspect reporting_summary — confirm run_date was stamped by the job parameter
-print("reporting_summary (should include the run_date parameter value):")
-display(spark.table(f"{CATALOG}.{SCHEMA}.reporting_summary"))
-
 # COMMAND ----------
 
 # MAGIC %md
