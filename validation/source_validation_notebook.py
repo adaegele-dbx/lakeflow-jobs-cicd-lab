@@ -59,7 +59,7 @@ volume_path = f"/Volumes/{catalog}/{schema}/raw_data"
 
 # ── Check 1: Volume path is accessible ────────────────────────────────────────
 try:
-    entries = os.listdir(f"/dbfs{volume_path}")
+    entries = os.listdir(volume_path)
 except FileNotFoundError:
     raise Exception(
         f"Volume not found: {volume_path}\n"
