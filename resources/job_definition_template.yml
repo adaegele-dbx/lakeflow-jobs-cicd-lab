@@ -4,31 +4,72 @@
 # Copy the YAML below (starting at "resources:") and paste it into
 # databricks.yml, replacing the existing empty "resources:" key.
 #
-# This defines a five-task Lakeflow Job with explicit task dependencies:
+# This defines three resource types and a three-task Lakeflow Job:
 #
-#   validate_source
-#        │  depends_on: —
-#        ▼
-#   bronze
-#        │  depends_on: validate_source
-#        ▼
-#   silver
-#        │  depends_on: bronze
-#        ▼
-#   gold
-#        │  depends_on: silver
-#        ▼
-#   run_reporting
-#        depends_on: gold
+#   Resources:
+#     - Pipeline  (Lakeflow Declarative Pipeline — medallion ETL)
+#     - Dashboard (AI/BI Lakeview dashboard — sales visualizations)
+#     - Job       (Lakeflow Job — orchestrates everything)
+#
+#   Job task DAG:
+#
+#     validate_source  (notebook task)
+#          │
+#          ▼
+#     run_pipeline     (pipeline task)
+#          │
+#          ▼
+#     refresh_dashboard (dashboard task)
 #
 # Job-level parameters (run_date, catalog, schema) are pushed down
-# automatically to all notebook tasks — no per-task configuration needed.
-# catalog and schema use ${var.*} so the correct environment schema is selected
-# automatically based on the target (dev → lakeflow_lab_dev, prod → lakeflow_lab).
+# automatically to notebook tasks — no per-task configuration needed.
+# The pipeline gets catalog/schema from its own configuration.
+# catalog and schema use ${var.*} so the correct environment schema is
+# selected automatically based on the target (dev or prod).
 # =============================================================================
 
 resources:
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # Pipeline — Lakeflow Declarative Pipeline (Delta Live Tables)
+  #
+  # Processes the entire medallion architecture in a single pipeline:
+  #   bronze_orders → silver_orders → gold_sales_by_region, gold_top_products
+  #
+  # The catalog and target (schema) are set here, not in the pipeline code.
+  # The pipeline.volume_path configuration tells the pipeline where to
+  # find the source CSV data.
+  # ─────────────────────────────────────────────────────────────────────────
+  pipelines:
+    medallion_pipeline:
+      name: "Lakeflow Lab - Medallion Pipeline [${bundle.target}]"
+      catalog: ${var.catalog}
+      target: ${var.schema}
+      configuration:
+        pipeline.volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
+      libraries:
+        - file:
+            path: ./pipeline/medallion_pipeline.py
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Dashboard — AI/BI Lakeview Dashboard
+  #
+  # Visualizes the gold-layer tables produced by the pipeline.
+  # The dashboard definition lives in dashboards/sales_dashboard.lvdash.json.
+  # ─────────────────────────────────────────────────────────────────────────
+  dashboards:
+    sales_dashboard:
+      display_name: "Lakeflow Lab - Sales Dashboard [${bundle.target}]"
+      file_path: ./dashboards/sales_dashboard.lvdash.json
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job — Lakeflow Orchestration Job
+  #
+  # Three tasks, three different task types:
+  #   1. Notebook task  — validate_source (pre-flight gate)
+  #   2. Pipeline task  — run_pipeline (medallion ETL)
+  #   3. Dashboard task — refresh_dashboard (update visualizations)
+  # ─────────────────────────────────────────────────────────────────────────
   jobs:
     lakeflow_lab_job:
       name: "Lakeflow Lab - Orchestration Job [${bundle.target}]"
@@ -36,7 +77,7 @@ resources:
       # -----------------------------------------------------------------------
       # Job-level parameters
       #
-      # Pushed down automatically to all notebook tasks at run time.
+      # Pushed down automatically to notebook tasks at run time.
       # Override at run time in the UI ("Run now with different parameters")
       # or via the CLI:
       #   databricks bundle run lakeflow_lab_job --target dev \
@@ -67,7 +108,7 @@ resources:
       tasks:
 
         # -----------------------------------------------------------------------
-        # Task 1 — Validate source data
+        # Task 1 — Validate source data (Notebook task)
         #
         # No depends_on — this task starts immediately when the job runs.
         # If it fails, all downstream tasks are automatically skipped.
@@ -78,55 +119,27 @@ resources:
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
-        # Task 2 — Bronze: raw ingestion
+        # Task 2 — Run the medallion pipeline (Pipeline task)
         #
         # depends_on: validate_source
-        # Reads CSV files from the volume and writes bronze_orders as a Delta
-        # table.  Starts only after validation succeeds.
+        # Triggers the Lakeflow Declarative Pipeline which processes
+        # bronze → silver → gold in a single managed execution.
         # -----------------------------------------------------------------------
-        - task_key: bronze
+        - task_key: run_pipeline
           depends_on:
             - task_key: validate_source
-          notebook_task:
-            notebook_path: ./pipeline/bronze_notebook
-            source: WORKSPACE
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.medallion_pipeline.id}
 
         # -----------------------------------------------------------------------
-        # Task 3 — Silver: cleanse & transform
+        # Task 3 — Refresh the sales dashboard (Dashboard task)
         #
-        # depends_on: bronze
-        # Casts types, adds derived fields, drops duplicates and bad rows.
+        # depends_on: run_pipeline
+        # Refreshes the AI/BI dashboard so it reflects the latest data
+        # written by the pipeline.
         # -----------------------------------------------------------------------
-        - task_key: silver
+        - task_key: refresh_dashboard
           depends_on:
-            - task_key: bronze
-          notebook_task:
-            notebook_path: ./pipeline/silver_notebook
-            source: WORKSPACE
-
-        # -----------------------------------------------------------------------
-        # Task 4 — Gold: business aggregations
-        #
-        # depends_on: silver
-        # Produces gold_sales_by_region and gold_top_products.
-        # -----------------------------------------------------------------------
-        - task_key: gold
-          depends_on:
-            - task_key: silver
-          notebook_task:
-            notebook_path: ./pipeline/gold_notebook
-            source: WORKSPACE
-
-        # -----------------------------------------------------------------------
-        # Task 5 — Reporting
-        #
-        # depends_on: gold
-        # Reads the gold tables, writes reporting_summary, stamps run_date.
-        # -----------------------------------------------------------------------
-        - task_key: run_reporting
-          depends_on:
-            - task_key: gold
-          notebook_task:
-            notebook_path: ./analysis/reporting_notebook
-            source: WORKSPACE
-          # Serverless compute — no cluster definition needed on free tier
+            - task_key: run_pipeline
+          dashboard_task:
+            dashboard_id: ${resources.dashboards.sales_dashboard.id}

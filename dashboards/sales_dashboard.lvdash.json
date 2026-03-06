@@ -1,0 +1,223 @@
+{
+  "datasets": [
+    {
+      "name": "region_sales",
+      "displayName": "Regional Sales",
+      "query": "SELECT region, year_month, total_revenue, order_count, avg_order_value, unique_customers\nFROM workspace.lakeflow_lab.gold_sales_by_region\nORDER BY region, year_month"
+    },
+    {
+      "name": "top_products",
+      "displayName": "Top Products",
+      "query": "SELECT product, category, total_revenue, total_units_sold, order_count, avg_unit_price\nFROM workspace.lakeflow_lab.gold_top_products\nORDER BY total_revenue DESC"
+    },
+    {
+      "name": "summary_metrics",
+      "displayName": "Summary Metrics",
+      "query": "SELECT\n  ROUND(SUM(total_revenue), 2) AS total_revenue,\n  SUM(order_count) AS total_orders,\n  ROUND(AVG(avg_order_value), 2) AS avg_order_value\nFROM workspace.lakeflow_lab.gold_sales_by_region"
+    }
+  ],
+  "pages": [
+    {
+      "name": "sales_overview",
+      "displayName": "Sales Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "textbox_spec": "# Sales Dashboard\nKey metrics from the Lakeflow Lab medallion pipeline"
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
+        },
+        {
+          "widget": {
+            "name": "total_revenue_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_metrics",
+                  "fields": [
+                    {"name": "total_revenue", "expression": "`total_revenue`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_revenue",
+                  "displayName": "Total Revenue"
+                }
+              }
+            }
+          },
+          "position": {"x": 0, "y": 1, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "total_orders_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_metrics",
+                  "fields": [
+                    {"name": "total_orders", "expression": "`total_orders`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_orders",
+                  "displayName": "Total Orders"
+                }
+              }
+            }
+          },
+          "position": {"x": 2, "y": 1, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "avg_order_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_metrics",
+                  "fields": [
+                    {"name": "avg_order_value", "expression": "`avg_order_value`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_order_value",
+                  "displayName": "Avg Order Value"
+                }
+              }
+            }
+          },
+          "position": {"x": 4, "y": 1, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "revenue_by_region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "region_sales",
+                  "fields": [
+                    {"name": "region", "expression": "`region`"},
+                    {"name": "total_revenue", "expression": "SUM(`total_revenue`)"}
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region",
+                  "scale": {"type": "categorical"},
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "total_revenue",
+                  "scale": {"type": "quantitative"},
+                  "displayName": "Total Revenue"
+                }
+              }
+            }
+          },
+          "position": {"x": 0, "y": 3, "width": 3, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "revenue_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "region_sales",
+                  "fields": [
+                    {"name": "year_month", "expression": "`year_month`"},
+                    {"name": "total_revenue", "expression": "SUM(`total_revenue`)"}
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "year_month",
+                  "scale": {"type": "categorical"},
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "total_revenue",
+                  "scale": {"type": "quantitative"},
+                  "displayName": "Revenue"
+                }
+              }
+            }
+          },
+          "position": {"x": 3, "y": 3, "width": 3, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "top_products_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "top_products",
+                  "fields": [
+                    {"name": "product", "expression": "`product`"},
+                    {"name": "category", "expression": "`category`"},
+                    {"name": "total_revenue", "expression": "`total_revenue`"},
+                    {"name": "total_units_sold", "expression": "`total_units_sold`"},
+                    {"name": "order_count", "expression": "`order_count`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "product", "displayName": "Product"},
+                  {"fieldName": "category", "displayName": "Category"},
+                  {"fieldName": "total_revenue", "displayName": "Revenue"},
+                  {"fieldName": "total_units_sold", "displayName": "Units Sold"},
+                  {"fieldName": "order_count", "displayName": "Orders"}
+                ]
+              }
+            }
+          },
+          "position": {"x": 0, "y": 7, "width": 6, "height": 4}
+        }
+      ]
+    }
+  ]
+}
