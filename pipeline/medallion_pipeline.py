@@ -32,7 +32,7 @@ from pyspark.sql.functions import (
     comment="Raw e-commerce orders ingested from CSV — all columns kept as strings"
 )
 def bronze_orders():
-    volume_path = spark.conf.get("volume_path")
+    volume_path = spark.conf.get("volume_path", "/Volumes/workspace/lakeflow_lab/raw_data")
     return (
         spark.read.format("csv")
         .option("header", "true")
