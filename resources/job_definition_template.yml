@@ -4,6 +4,17 @@
 # Copy the YAML below (starting at "resources:") and paste it into
 # databricks.yml, replacing the existing empty "resources:" key.
 #
+# ALSO add the per-target dashboard override to the existing "targets:"
+# section so the dev job refreshes a dev dashboard (querying lakeflow_lab_dev):
+#
+#   targets:
+#     dev:
+#       ...
+#       resources:                              # ← add this block
+#         dashboards:
+#           sales_dashboard:
+#             file_path: ./dashboards/sales_dashboard_dev.lvdash.json
+#
 # This defines three resource types and a three-task Lakeflow Job:
 #
 #   Resources:

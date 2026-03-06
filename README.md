@@ -46,7 +46,8 @@ lakeflow-jobs-and-ci-cd/
 │   └── source_validation_notebook.py  # Task 1: pre-flight gate; demonstrates job parameters
 │
 ├── dashboards/
-│   └── sales_dashboard.lvdash.json    # AI/BI dashboard definition (revenue, products, trends)
+│   ├── sales_dashboard.lvdash.json      # AI/BI dashboard — queries prod (lakeflow_lab)
+│   └── sales_dashboard_dev.lvdash.json  # AI/BI dashboard — queries dev (lakeflow_lab_dev)
 │
 └── resources/
     └── job_definition_template.yml    # Annotated YAML to paste into databricks.yml
@@ -56,7 +57,7 @@ lakeflow-jobs-and-ci-cd/
 
 | Part | Topic |
 |------|-------|
-| **Setup** | Create schemas, volumes, generate sample data, and create the dashboard |
+| **Setup** | Create schemas, volumes, generate sample data; create pipeline and publish dashboard |
 | **Part 1** | Explore the Lakeflow Declarative Pipeline (medallion architecture) |
 | **Part 2** | Explore the validation notebook and sales dashboard |
 | **Part 3** | Lakeflow Jobs concepts — task types, parameters, and dependencies |

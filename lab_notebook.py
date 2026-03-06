@@ -12,7 +12,7 @@
 # MAGIC
 # MAGIC | Step | What you'll do |
 # MAGIC |------|----------------|
-# MAGIC | **Setup** | Create Unity Catalog schemas, volumes, and sample data; create a pipeline and dashboard |
+# MAGIC | **Setup** | Create Unity Catalog schemas, volumes, and sample data; create a pipeline and publish a dashboard |
 # MAGIC | **Part 1** | Explore the **Lakeflow Declarative Pipeline** (medallion architecture in a single file) |
 # MAGIC | **Part 2** | Explore the supporting artifacts — a **validation notebook** and a **sales dashboard** |
 # MAGIC | **Part 3** | Learn **Lakeflow Jobs** concepts — task types, parameters, and task dependencies |
@@ -117,64 +117,46 @@ display(df.head(5))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Setup — Create the Pipeline and Dashboard
+# MAGIC ### Setup — Create the Declarative Pipeline
 # MAGIC
-# MAGIC The cell below creates two resources that the Lakeflow Job will orchestrate:
+# MAGIC Create the pipeline that the job will trigger as its ETL task.
 # MAGIC
-# MAGIC 1. A **Lakeflow Declarative Pipeline** — runs the medallion ETL defined in
-# MAGIC    `pipeline/medallion_pipeline.py`
-# MAGIC 2. A **Lakeview dashboard** — visualizes the gold-layer tables produced by the pipeline
+# MAGIC 1. Click **Workflows** in the left sidebar
+# MAGIC 2. Click the **Delta Live Tables** tab
+# MAGIC 3. Click **Create pipeline**
+# MAGIC 4. Configure:
 # MAGIC
-# MAGIC > **Note:** The dashboard will show empty/error states until the pipeline runs for
-# MAGIC > the first time and populates the gold tables — that's expected.
-
-# COMMAND ----------
-
-import json
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.pipelines import PipelineLibrary, FileLibrary
-
-w = WorkspaceClient()
-
-# Derive the repo root from this notebook's path
-notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-repo_root = notebook_path.rsplit("/", 1)[0]
-
-# ── 1. Create the Lakeflow Declarative Pipeline ──────────────────────────────
-pipeline_resp = w.pipelines.create(
-    name="Lakeflow Lab - Medallion Pipeline",
-    catalog="workspace",
-    target="lakeflow_lab",
-    configuration={"volume_path": "/Volumes/workspace/lakeflow_lab/raw_data"},
-    libraries=[
-        PipelineLibrary(file=FileLibrary(path=f"{repo_root}/pipeline/medallion_pipeline"))
-    ],
-)
-
-print(f"  Pipeline  : Lakeflow Lab - Medallion Pipeline")
-print(f"  ID        : {pipeline_resp.pipeline_id}")
-print()
-
-# ── 2. Create the AI/BI Dashboard ────────────────────────────────────────────
-dashboard_file_path = f"/Workspace{repo_root}/dashboards/sales_dashboard.lvdash.json"
-with open(dashboard_file_path) as f:
-    dashboard_json = f.read()
-
-dashboard = w.lakeview.create(
-    display_name="Lakeflow Lab - Sales Dashboard",
-    serialized_dashboard=dashboard_json,
-    parent_path=repo_root,
-)
-
-host = w.config.host.rstrip("/")
-if not host.startswith("https://"):
-    host = f"https://{host}"
-
-print(f"  Dashboard : {dashboard.display_name}")
-print(f"  ID        : {dashboard.dashboard_id}")
-print(f"  URL       : {host}/dashboardsv3/{dashboard.dashboard_id}")
-print()
-print("Both resources are ready. You'll reference them by name in Part 4 when building the job.")
+# MAGIC    | Setting | Value |
+# MAGIC    |---------|-------|
+# MAGIC    | **Pipeline name** | `Lakeflow Lab - Medallion Pipeline` |
+# MAGIC    | **Source code** | Browse to `pipeline/medallion_pipeline.py` in your Git folder |
+# MAGIC    | **Destination** → Catalog | `workspace` |
+# MAGIC    | **Destination** → Target schema | `lakeflow_lab` |
+# MAGIC
+# MAGIC 5. Under **Advanced** → **Configuration**, add one key-value pair:
+# MAGIC
+# MAGIC    | Key | Value |
+# MAGIC    |-----|-------|
+# MAGIC    | `volume_path` | `/Volumes/workspace/lakeflow_lab/raw_data` |
+# MAGIC
+# MAGIC 6. Click **Create**
+# MAGIC 7. Click **Start** to run a **dry run** — this validates the pipeline graph and
+# MAGIC    confirms all four tables (bronze, silver, two golds) are recognized
+# MAGIC 8. Once the dry run succeeds, you're done — the pipeline is ready to be
+# MAGIC    referenced as a job task
+# MAGIC
+# MAGIC ### Setup — Publish the Sales Dashboard
+# MAGIC
+# MAGIC Create the dashboard that the job will refresh as its final task.
+# MAGIC
+# MAGIC 1. In the workspace file browser, navigate to your Git folder
+# MAGIC 2. Open the `dashboards/` folder
+# MAGIC 3. Click on **`sales_dashboard.lvdash.json`** — Databricks opens it as a dashboard
+# MAGIC 4. Click **Publish** in the top-right corner to make it available as a job task
+# MAGIC
+# MAGIC > **Note:** The dashboard queries reference `workspace.lakeflow_lab` (the prod schema).
+# MAGIC > The tables won't exist until the pipeline runs for the first time, so the dashboard
+# MAGIC > will show empty or error states until then — that's expected.
 
 # COMMAND ----------
 
@@ -295,8 +277,8 @@ print("Both resources are ready. You'll reference them by name in Part 4 when bu
 # MAGIC
 # MAGIC **File:** `dashboards/sales_dashboard.lvdash.json`
 # MAGIC
-# MAGIC You created this dashboard in the Setup step above.  Open it from the workspace
-# MAGIC sidebar or use the URL that was printed.
+# MAGIC You published this dashboard in the Setup step above.  Open it from the workspace
+# MAGIC sidebar or click the `.lvdash.json` file again.
 # MAGIC
 # MAGIC The dashboard queries the **gold-layer tables** produced by the pipeline:
 # MAGIC
@@ -566,6 +548,10 @@ print("Both resources are ready. You'll reference them by name in Part 4 when bu
 # MAGIC     default: true
 # MAGIC     variables:
 # MAGIC       schema: lakeflow_lab_dev
+# MAGIC     resources:                              # per-target resource overrides
+# MAGIC       dashboards:
+# MAGIC         sales_dashboard:
+# MAGIC           file_path: ./dashboards/sales_dashboard_dev.lvdash.json
 # MAGIC   prod:
 # MAGIC     variables:
 # MAGIC       schema: lakeflow_lab
@@ -632,8 +618,10 @@ print("Both resources are ready. You'll reference them by name in Part 4 when bu
 # MAGIC - The **pipeline resource** sets `catalog` and `target` (schema) using bundle variables —
 # MAGIC   deploying to `dev` writes tables to `lakeflow_lab_dev`; deploying to `prod` writes
 # MAGIC   to `lakeflow_lab`
-# MAGIC - The **dashboard resource** points to the `.lvdash.json` file — DABs deploys and
-# MAGIC   manages the dashboard alongside the other resources
+# MAGIC - The **dashboard resource** defaults to the prod `.lvdash.json` file, but the `dev`
+# MAGIC   target overrides `file_path` to use `sales_dashboard_dev.lvdash.json` — which
+# MAGIC   queries `lakeflow_lab_dev` tables.  This means the dev job refreshes a dev
+# MAGIC   dashboard, and the prod job refreshes a prod dashboard.
 # MAGIC - The **job's pipeline task** references the pipeline by ID using
 # MAGIC   `${resources.pipelines.medallion_pipeline.id}` — DABs resolves this automatically
 # MAGIC - The **job's dashboard task** similarly references

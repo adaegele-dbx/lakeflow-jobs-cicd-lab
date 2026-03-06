@@ -28,6 +28,10 @@ targets:
 #   An AI/BI Lakeview Dashboard       (resources.dashboards)
 #   A Lakeflow Orchestration Job      (resources.jobs)
 #
+# You will also add a per-target override under the dev target above
+# so that dev deploys use sales_dashboard_dev.lvdash.json (which queries
+# the lakeflow_lab_dev schema).
+#
 # See resources/job_definition_template.yml for the complete YAML to paste in,
 # or follow the step-by-step instructions in lab_notebook.py (Part 5).
 # =============================================================================
