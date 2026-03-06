@@ -37,7 +37,7 @@ resources:
   #   bronze_orders → silver_orders → gold_sales_by_region, gold_top_products
   #
   # The catalog and target (schema) are set here, not in the pipeline code.
-  # The pipeline.volume_path configuration tells the pipeline where to
+  # The volume_path configuration tells the pipeline where to
   # find the source CSV data.
   # ─────────────────────────────────────────────────────────────────────────
   pipelines:
@@ -46,7 +46,7 @@ resources:
       catalog: ${var.catalog}
       target: ${var.schema}
       configuration:
-        pipeline.volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
+        volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
       libraries:
         - file:
             path: ./pipeline/medallion_pipeline.py

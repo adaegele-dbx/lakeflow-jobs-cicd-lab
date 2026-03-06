@@ -145,7 +145,7 @@ pipeline_resp = w.pipelines.create(
     name="Lakeflow Lab - Medallion Pipeline",
     catalog="workspace",
     target="lakeflow_lab",
-    configuration={"pipeline.volume_path": "/Volumes/workspace/lakeflow_lab/raw_data"},
+    configuration={"volume_path": "/Volumes/workspace/lakeflow_lab/raw_data"},
     libraries=[
         PipelineLibrary(file=FileLibrary(path=f"{repo_root}/pipeline/medallion_pipeline"))
     ],
@@ -223,7 +223,7 @@ print("Both resources are ready. You'll reference them by name in Part 4 when bu
 # MAGIC   data quality metrics).
 # MAGIC - **`dlt.read("bronze_orders")`** — reads from another table *in the same pipeline*.
 # MAGIC   DLT resolves dependencies automatically — no need to specify execution order.
-# MAGIC - **`spark.conf.get("pipeline.volume_path")`** — the source data path comes from
+# MAGIC - **`spark.conf.get("volume_path")`** — the source data path comes from
 # MAGIC   pipeline configuration, not hardcoded values.  This is set when the pipeline
 # MAGIC   resource is defined (you'll see this in Part 5).
 # MAGIC - **No `dbutils.widgets`** — unlike notebook tasks, a declarative pipeline gets its
@@ -578,7 +578,7 @@ print("Both resources are ready. You'll reference them by name in Part 4 when bu
 # MAGIC       catalog: ${var.catalog}
 # MAGIC       target: ${var.schema}
 # MAGIC       configuration:
-# MAGIC         pipeline.volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
+# MAGIC         volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
 # MAGIC       libraries:
 # MAGIC         - file:
 # MAGIC             path: ./pipeline/medallion_pipeline.py
