@@ -121,8 +121,8 @@ display(df.head(5))
 # MAGIC
 # MAGIC Create the pipeline that the job will trigger as its ETL task.
 # MAGIC
-# MAGIC 1. Click **Workflows** in the left sidebar
-# MAGIC 2. Click the **Delta Live Tables** tab
+# MAGIC 1. Click **Jobs & Pipelines** in the left sidebar
+# MAGIC 2. Click the **Pipelines** tab
 # MAGIC 3. Click **Create pipeline**
 # MAGIC 4. Configure:
 # MAGIC
@@ -168,7 +168,7 @@ display(df.head(5))
 # MAGIC
 # MAGIC The medallion architecture organises data into three progressively refined layers.
 # MAGIC In this lab, all three layers are defined in a **single Lakeflow Declarative Pipeline**
-# MAGIC (also known as Delta Live Tables / DLT):
+# MAGIC (also known as DLT / Delta Live Tables):
 # MAGIC
 # MAGIC ```
 # MAGIC  /Volumes/workspace/lakeflow_lab/raw_data/orders.csv
@@ -384,7 +384,7 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### Step 4a — Create a new job
 # MAGIC
-# MAGIC 1. Click **Workflows** in the left sidebar, then the **Jobs** tab
+# MAGIC 1. Click **Jobs & Pipelines** in the left sidebar, then the **Jobs** tab
 # MAGIC 2. Click **Create job**
 # MAGIC 3. Name the job: **`Lakeflow Lab - Orchestration Job`**
 # MAGIC
@@ -676,7 +676,7 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### Explore the deployed job in the UI
 # MAGIC
-# MAGIC 1. Click **Workflows** in the left sidebar
+# MAGIC 1. Click **Jobs & Pipelines** in the left sidebar
 # MAGIC 2. Find **`[dev your@email.com] Lakeflow Lab - Orchestration Job [dev]`** and open it
 # MAGIC 3. Click the **Tasks** tab — you should see three tasks connected by arrows:
 # MAGIC    `validate_source` → `run_pipeline` → `refresh_dashboard`
