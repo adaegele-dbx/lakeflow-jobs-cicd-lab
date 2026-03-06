@@ -15,26 +15,24 @@
 #           sales_dashboard:
 #             file_path: ./dashboards/sales_dashboard_dev.lvdash.json
 #
-# This defines three resource types and a three-task Lakeflow Job:
+# This defines two resource types and a three-task Lakeflow Job:
 #
 #   Resources:
-#     - Pipeline  (Lakeflow Declarative Pipeline — medallion ETL)
 #     - Dashboard (AI/BI Lakeview dashboard — sales visualizations)
 #     - Job       (Lakeflow Job — orchestrates everything)
 #
 #   Job task DAG:
 #
-#     validate_source  (notebook task)
+#     validate_source    (notebook task)
 #          │
 #          ▼
-#     run_pipeline     (pipeline task)
+#     run_etl            (notebook task)
 #          │
 #          ▼
-#     refresh_dashboard (dashboard task)
+#     refresh_dashboard  (dashboard task)
 #
 # Job-level parameters (run_date, catalog, schema) are pushed down
 # automatically to notebook tasks — no per-task configuration needed.
-# The pipeline gets catalog/schema from its own configuration.
 # catalog and schema use ${var.*} so the correct environment schema is
 # selected automatically based on the target (dev or prod).
 # =============================================================================
@@ -42,31 +40,12 @@
 resources:
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Pipeline — Lakeflow Declarative Pipeline (Delta Live Tables)
-  #
-  # Processes the entire medallion architecture in a single pipeline:
-  #   bronze_orders → silver_orders → gold_sales_by_region, gold_top_products
-  #
-  # The catalog and target (schema) are set here, not in the pipeline code.
-  # The volume_path configuration tells the pipeline where to
-  # find the source CSV data.
-  # ─────────────────────────────────────────────────────────────────────────
-  pipelines:
-    medallion_pipeline:
-      name: "Lakeflow Lab - Medallion Pipeline [${bundle.target}]"
-      catalog: ${var.catalog}
-      target: ${var.schema}
-      configuration:
-        volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
-      libraries:
-        - file:
-            path: ./pipeline/medallion_pipeline.py
-
-  # ─────────────────────────────────────────────────────────────────────────
   # Dashboard — AI/BI Lakeview Dashboard
   #
-  # Visualizes the gold-layer tables produced by the pipeline.
+  # Visualizes the gold-layer tables produced by the ETL notebook.
   # The dashboard definition lives in dashboards/sales_dashboard.lvdash.json.
+  # The dev target overrides file_path to sales_dashboard_dev.lvdash.json
+  # so the dev dashboard queries lakeflow_lab_dev tables.
   # ─────────────────────────────────────────────────────────────────────────
   dashboards:
     sales_dashboard:
@@ -76,9 +55,9 @@ resources:
   # ─────────────────────────────────────────────────────────────────────────
   # Job — Lakeflow Orchestration Job
   #
-  # Three tasks, three different task types:
+  # Three tasks, two task types:
   #   1. Notebook task  — validate_source (pre-flight gate)
-  #   2. Pipeline task  — run_pipeline (medallion ETL)
+  #   2. Notebook task  — run_etl (medallion ETL: bronze → silver → gold)
   #   3. Dashboard task — refresh_dashboard (update visualizations)
   # ─────────────────────────────────────────────────────────────────────────
   jobs:
@@ -130,27 +109,27 @@ resources:
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
-        # Task 2 — Run the medallion pipeline (Pipeline task)
+        # Task 2 — Run the medallion ETL (Notebook task)
         #
         # depends_on: validate_source
-        # Triggers the Lakeflow Declarative Pipeline which processes
-        # bronze → silver → gold in a single managed execution.
+        # Processes bronze → silver → gold in a single notebook.
         # -----------------------------------------------------------------------
-        - task_key: run_pipeline
+        - task_key: run_etl
           depends_on:
             - task_key: validate_source
-          pipeline_task:
-            pipeline_id: ${resources.pipelines.medallion_pipeline.id}
+          notebook_task:
+            notebook_path: ./pipeline/medallion_notebook
+            source: WORKSPACE
 
         # -----------------------------------------------------------------------
         # Task 3 — Refresh the sales dashboard (Dashboard task)
         #
-        # depends_on: run_pipeline
+        # depends_on: run_etl
         # Refreshes the AI/BI dashboard so it reflects the latest data
-        # written by the pipeline.
+        # written by the ETL notebook.
         # -----------------------------------------------------------------------
         - task_key: refresh_dashboard
           depends_on:
-            - task_key: run_pipeline
+            - task_key: run_etl
           dashboard_task:
             dashboard_id: ${resources.dashboards.sales_dashboard.id}

@@ -7,7 +7,7 @@ variables:
     description: The Unity Catalog catalog to deploy resources into
   schema:
     default: lakeflow_lab
-    description: The schema (database) to use for pipeline targets and lab tables
+    description: The schema (database) to use for lab tables
 
 targets:
   dev:
@@ -23,8 +23,7 @@ targets:
 # =============================================================================
 # RESOURCES — Complete this section during Part 5 of the lab!
 #
-# You will define three resources here:
-#   A Lakeflow Declarative Pipeline   (resources.pipelines)
+# You will define two resources here:
 #   An AI/BI Lakeview Dashboard       (resources.dashboards)
 #   A Lakeflow Orchestration Job      (resources.jobs)
 #

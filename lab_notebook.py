@@ -12,8 +12,8 @@
 # MAGIC
 # MAGIC | Step | What you'll do |
 # MAGIC |------|----------------|
-# MAGIC | **Setup** | Create Unity Catalog schemas, volumes, and sample data; create a pipeline and publish a dashboard |
-# MAGIC | **Part 1** | Explore the **Lakeflow Declarative Pipeline** (medallion architecture in a single file) |
+# MAGIC | **Setup** | Create Unity Catalog schemas, volumes, and sample data; publish a dashboard |
+# MAGIC | **Part 1** | Explore the **medallion ETL notebook** (bronze, silver, gold in one notebook) |
 # MAGIC | **Part 2** | Explore the supporting artifacts — a **validation notebook** and a **sales dashboard** |
 # MAGIC | **Part 3** | Learn **Lakeflow Jobs** concepts — task types, parameters, and task dependencies |
 # MAGIC | **Part 4** | Build the three-task job in the **Databricks Jobs UI** and run a first test |
@@ -117,34 +117,6 @@ display(df.head(5))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Setup — Create the Declarative Pipeline
-# MAGIC
-# MAGIC Create the pipeline that the job will trigger as its ETL task.
-# MAGIC
-# MAGIC 1. Click **Jobs & Pipelines** in the left sidebar
-# MAGIC 2. Click the **Pipelines** tab
-# MAGIC 3. Click **Create pipeline**
-# MAGIC 4. Configure:
-# MAGIC
-# MAGIC    | Setting | Value |
-# MAGIC    |---------|-------|
-# MAGIC    | **Pipeline name** | `Lakeflow Lab - Medallion Pipeline` |
-# MAGIC    | **Source code** | Browse to `pipeline/medallion_pipeline.py` in your Git folder |
-# MAGIC    | **Destination** → Catalog | `workspace` |
-# MAGIC    | **Destination** → Target schema | `lakeflow_lab` |
-# MAGIC
-# MAGIC 5. Under **Advanced** → **Configuration**, add one key-value pair:
-# MAGIC
-# MAGIC    | Key | Value |
-# MAGIC    |-----|-------|
-# MAGIC    | `volume_path` | `/Volumes/workspace/lakeflow_lab/raw_data` |
-# MAGIC
-# MAGIC 6. Click **Create**
-# MAGIC 7. Click **Start** to run a **dry run** — this validates the pipeline graph and
-# MAGIC    confirms all four tables (bronze, silver, two golds) are recognized
-# MAGIC 8. Once the dry run succeeds, you're done — the pipeline is ready to be
-# MAGIC    referenced as a job task
-# MAGIC
 # MAGIC ### Setup — Publish the Sales Dashboard
 # MAGIC
 # MAGIC Create the dashboard that the job will refresh as its final task.
@@ -155,35 +127,34 @@ display(df.head(5))
 # MAGIC 4. Click **Publish** in the top-right corner to make it available as a job task
 # MAGIC
 # MAGIC > **Note:** The dashboard queries reference `workspace.lakeflow_lab` (the prod schema).
-# MAGIC > The tables won't exist until the pipeline runs for the first time, so the dashboard
+# MAGIC > The tables won't exist until the ETL notebook runs for the first time, so the dashboard
 # MAGIC > will show empty or error states until then — that's expected.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 1 — The Lakeflow Declarative Pipeline
+# MAGIC ## Part 1 — The Medallion ETL Notebook
 # MAGIC
 # MAGIC ### Overview
 # MAGIC
 # MAGIC The medallion architecture organises data into three progressively refined layers.
-# MAGIC In this lab, all three layers are defined in a **single Lakeflow Declarative Pipeline**
-# MAGIC (also known as DLT / Delta Live Tables):
+# MAGIC In this lab, all three layers are implemented in a **single notebook**:
 # MAGIC
 # MAGIC ```
 # MAGIC  /Volumes/workspace/lakeflow_lab/raw_data/orders.csv
 # MAGIC           |
-# MAGIC           v   @dlt.table
+# MAGIC           v   Bronze
 # MAGIC  +------------------+
 # MAGIC  |  bronze_orders   |  Raw CSV ingested as strings
 # MAGIC  +--------+---------+
-# MAGIC           |   @dlt.table + @dlt.expect_or_drop
+# MAGIC           |   Silver
 # MAGIC           |   type casts, quality filters, deduplication, derived fields
 # MAGIC           v
 # MAGIC  +------------------+
 # MAGIC  |  silver_orders   |  Cleaned, typed, enriched data
 # MAGIC  +--------+---------+
-# MAGIC           |   @dlt.table
+# MAGIC           |   Gold
 # MAGIC       +---+-------------------+
 # MAGIC       v                       v
 # MAGIC  +--------------------+  +-------------------+
@@ -194,26 +165,24 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### What to look for
 # MAGIC
-# MAGIC Open `pipeline/medallion_pipeline.py` in a new tab and read through it.
+# MAGIC Open `pipeline/medallion_notebook.py` in a new tab and read through it.
 # MAGIC
 # MAGIC As you read, notice:
 # MAGIC
-# MAGIC - **`@dlt.table`** — each function decorated with `@dlt.table` becomes a managed
-# MAGIC   Delta table.  The function name becomes the table name.
-# MAGIC - **`@dlt.expect_or_drop`** — data quality rules on the silver layer.  Rows that
-# MAGIC   fail an expectation are automatically dropped (and counted in the pipeline's
-# MAGIC   data quality metrics).
-# MAGIC - **`dlt.read("bronze_orders")`** — reads from another table *in the same pipeline*.
-# MAGIC   DLT resolves dependencies automatically — no need to specify execution order.
-# MAGIC - **`spark.conf.get("volume_path")`** — the source data path comes from
-# MAGIC   pipeline configuration, not hardcoded values.  This is set when the pipeline
-# MAGIC   resource is defined (you'll see this in Part 5).
-# MAGIC - **No `dbutils.widgets`** — unlike notebook tasks, a declarative pipeline gets its
-# MAGIC   catalog and target schema from the pipeline definition, not from parameters.
+# MAGIC - **`dbutils.widgets`** at the top — the notebook receives `catalog` and `schema`
+# MAGIC   as job parameters, the same pattern used by the validation notebook
+# MAGIC - **Bronze section** — reads CSV with `inferSchema=false` (all strings), writes
+# MAGIC   `bronze_orders` as a Delta table
+# MAGIC - **Silver section** — casts types, adds `total_amount` and `year_month`, drops
+# MAGIC   duplicates, filters out bad rows
+# MAGIC - **Gold section** — aggregates completed orders into `gold_sales_by_region` and
+# MAGIC   `gold_top_products`
+# MAGIC - Each section **overwrites** its output table, making re-runs idempotent
 # MAGIC
-# MAGIC > **Key takeaway:** A declarative pipeline lets you define the *what* (table
-# MAGIC > definitions, quality rules, transformations) and the framework handles the *how*
-# MAGIC > (execution order, retries, incremental processing).
+# MAGIC > **Key takeaway:** Putting all three layers in one notebook keeps the job simple —
+# MAGIC > a single task handles the entire ETL.  For larger pipelines you might split layers
+# MAGIC > into separate tasks or use a Lakeflow Declarative Pipeline (DLT), but for this
+# MAGIC > scale a single notebook is the right level of complexity.
 
 # COMMAND ----------
 
@@ -224,15 +193,15 @@ display(df.head(5))
 # MAGIC Two more artifacts complete the three-task job:
 # MAGIC
 # MAGIC ```
-# MAGIC  Task 1              Task 2                Task 3
-# MAGIC  ─────────────────   ────────────────────  ──────────────────────
-# MAGIC  validate_source  →  run_pipeline        → refresh_dashboard
-# MAGIC  (notebook task)     (pipeline task)        (dashboard task)
+# MAGIC  Task 1              Task 2             Task 3
+# MAGIC  ─────────────────   ────────────────   ──────────────────────
+# MAGIC  validate_source  →  run_etl          → refresh_dashboard
+# MAGIC  (notebook task)     (notebook task)     (dashboard task)
 # MAGIC ```
 # MAGIC
-# MAGIC Notice that each task uses a **different task type** — this is one of the strengths
-# MAGIC of Lakeflow Jobs: you can orchestrate notebooks, pipelines, dashboards, SQL queries,
-# MAGIC dbt projects, and more in a single job.
+# MAGIC The job uses **two task types** — notebooks for compute logic, and a dashboard
+# MAGIC refresh for the final visualization step.  Lakeflow Jobs also supports pipeline,
+# MAGIC SQL, dbt, and other task types for more complex workflows.
 
 # COMMAND ----------
 
@@ -243,9 +212,9 @@ display(df.head(5))
 # MAGIC
 # MAGIC Open this file and read through it — **do not run it yet**.
 # MAGIC
-# MAGIC This notebook runs as **Task 1** — before the pipeline — so that a bad
+# MAGIC This notebook runs as **Task 1** — before the ETL — so that a bad
 # MAGIC state (missing volume, empty source file) causes a **fast, cheap failure** instead
-# MAGIC of spinning up a pipeline only to find there was nothing to process.
+# MAGIC of running the full ETL only to find there was nothing to process.
 # MAGIC
 # MAGIC #### Job parameters and `dbutils.widgets`
 # MAGIC
@@ -280,7 +249,7 @@ display(df.head(5))
 # MAGIC You published this dashboard in the Setup step above.  Open it from the workspace
 # MAGIC sidebar or click the `.lvdash.json` file again.
 # MAGIC
-# MAGIC The dashboard queries the **gold-layer tables** produced by the pipeline:
+# MAGIC The dashboard queries the **gold-layer tables** produced by the ETL notebook:
 # MAGIC
 # MAGIC | Widget | Source table | What it shows |
 # MAGIC |--------|-------------|---------------|
@@ -292,7 +261,7 @@ display(df.head(5))
 # MAGIC | Top Products table | `gold_top_products` | Product performance ranked by revenue |
 # MAGIC
 # MAGIC > **Note:** The dashboard shows empty/error states right now because the gold tables
-# MAGIC > don't exist yet.  They'll be populated when the pipeline runs for the first time
+# MAGIC > don't exist yet.  They'll be populated when the ETL notebook runs for the first time
 # MAGIC > in Part 4.
 
 # COMMAND ----------
@@ -306,16 +275,15 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### Task Types
 # MAGIC
-# MAGIC A Lakeflow Job can orchestrate many different task types.  Our job uses three:
+# MAGIC A Lakeflow Job can orchestrate many different task types.  Our job uses two:
 # MAGIC
-# MAGIC | Task type | What it does | Our task |
+# MAGIC | Task type | What it does | Our tasks |
 # MAGIC |-----------|-------------|----------|
-# MAGIC | **Notebook** | Runs a notebook with parameters via `dbutils.widgets` | `validate_source` |
-# MAGIC | **Pipeline** | Triggers a Lakeflow Declarative Pipeline (DLT) | `run_pipeline` |
+# MAGIC | **Notebook** | Runs a notebook with parameters via `dbutils.widgets` | `validate_source`, `run_etl` |
 # MAGIC | **Dashboard** | Refreshes an AI/BI Lakeview dashboard | `refresh_dashboard` |
 # MAGIC
-# MAGIC Other task types you might use in production: SQL queries, dbt projects, JAR tasks,
-# MAGIC Python scripts, and even other jobs (via `run_job` tasks).
+# MAGIC Other task types you might use in production: pipelines (DLT), SQL queries, dbt
+# MAGIC projects, JAR tasks, Python scripts, and even other jobs (via `run_job` tasks).
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -331,9 +299,10 @@ display(df.head(5))
 # MAGIC | **Override via** | `databricks bundle deploy --var foo=bar` | UI "Run with different parameters" or CLI `-p` flag |
 # MAGIC | **Consumed by** | YAML expressions (`${var.catalog}`) | Notebooks (`dbutils.widgets.get("run_date")`) |
 # MAGIC
-# MAGIC > **Important:** Job parameters are pushed down to **notebook tasks** automatically.
-# MAGIC > Pipeline tasks get their configuration (catalog, schema, volume path) from the
-# MAGIC > **pipeline definition**, not from job parameters.
+# MAGIC > **Connecting the two:** In Part 5 you'll set the `schema` job parameter's default
+# MAGIC > value to `${var.schema}`.  That single change makes the schema environment-aware —
+# MAGIC > deploying to `dev` automatically targets `lakeflow_lab_dev`, and deploying to `prod`
+# MAGIC > automatically targets `lakeflow_lab`.
 # MAGIC
 # MAGIC In our job we'll declare three parameters:
 # MAGIC
@@ -351,13 +320,13 @@ display(df.head(5))
 # MAGIC can declare which other tasks must succeed before it is allowed to start:
 # MAGIC
 # MAGIC ```
-# MAGIC  validate_source  (notebook)
+# MAGIC  validate_source    (notebook)
 # MAGIC        |
 # MAGIC        v
-# MAGIC  run_pipeline     (pipeline)
+# MAGIC  run_etl            (notebook)
 # MAGIC        |
 # MAGIC        v
-# MAGIC  refresh_dashboard (dashboard)
+# MAGIC  refresh_dashboard  (dashboard)
 # MAGIC ```
 # MAGIC
 # MAGIC **Behaviour when a task fails:**
@@ -366,8 +335,8 @@ display(df.head(5))
 # MAGIC - You can **retry a single failed task** from the UI without rerunning earlier tasks
 # MAGIC
 # MAGIC In our three-task job:
-# MAGIC - If `validate_source` fails, `run_pipeline` and `refresh_dashboard` are skipped
-# MAGIC - If `run_pipeline` fails, `refresh_dashboard` is skipped; `validate_source` is
+# MAGIC - If `validate_source` fails, `run_etl` and `refresh_dashboard` are skipped
+# MAGIC - If `run_etl` fails, `refresh_dashboard` is skipped; `validate_source` is
 # MAGIC   already complete and won't rerun on a retry
 
 # COMMAND ----------
@@ -379,8 +348,8 @@ display(df.head(5))
 # MAGIC Now you'll create the three-task job by hand in the UI.  This gives you a feel for
 # MAGIC the job structure before you see it expressed as code in Part 5.
 # MAGIC
-# MAGIC The pipeline and dashboard were already created during Setup — you'll reference
-# MAGIC them by name when adding tasks.
+# MAGIC The dashboard was already published during Setup — you'll reference it by name
+# MAGIC when adding the dashboard task.
 # MAGIC
 # MAGIC ### Step 4a — Create a new job
 # MAGIC
@@ -395,8 +364,8 @@ display(df.head(5))
 # MAGIC | Task key | Type | Configuration | Depends on |
 # MAGIC |----------|------|---------------|------------|
 # MAGIC | `validate_source` | **Notebook** | Path: `./validation/source_validation_notebook`, Source: Workspace | *(none — runs first)* |
-# MAGIC | `run_pipeline` | **Pipeline** | Select: `Lakeflow Lab - Medallion Pipeline` | `validate_source` |
-# MAGIC | `refresh_dashboard` | **Dashboard** | Select: `Lakeflow Lab - Sales Dashboard` | `run_pipeline` |
+# MAGIC | `run_etl` | **Notebook** | Path: `./pipeline/medallion_notebook`, Source: Workspace | `validate_source` |
+# MAGIC | `refresh_dashboard` | **Dashboard** | Select: `Lakeflow Lab - Sales Dashboard` | `run_etl` |
 # MAGIC
 # MAGIC > **Tip:** After adding each task (except the first), use the **"Depends on"** dropdown
 # MAGIC > to wire up the dependency.  The canvas should show a linear chain of three boxes.
@@ -425,15 +394,14 @@ display(df.head(5))
 # MAGIC ### Step 4d — Verify the DAG
 # MAGIC
 # MAGIC Click the **Tasks** canvas.  You should see three boxes connected left-to-right:
-# MAGIC `validate_source` → `run_pipeline` → `refresh_dashboard`.
+# MAGIC `validate_source` → `run_etl` → `refresh_dashboard`.
 # MAGIC
 # MAGIC ### Step 4e — Run the job
 # MAGIC
 # MAGIC Click **Run now** to trigger a test run.  Watch the progression:
 # MAGIC
 # MAGIC 1. `validate_source` runs first — a quick notebook checking that source data exists
-# MAGIC 2. `run_pipeline` runs next — the Lakeflow Declarative Pipeline processes all three
-# MAGIC    medallion layers (you can click into it to watch the DLT pipeline graph)
+# MAGIC 2. `run_etl` runs next — the medallion notebook processes bronze, silver, and gold
 # MAGIC 3. `refresh_dashboard` runs last — refreshing the dashboard with the new data
 # MAGIC
 # MAGIC Once all three tasks show green checkmarks, open the Sales Dashboard to see
@@ -448,7 +416,7 @@ display(df.head(5))
 # MAGIC ### What is a Databricks Asset Bundle?
 # MAGIC
 # MAGIC A **Databricks Asset Bundle (DAB)** is a YAML-based project format that lets you define,
-# MAGIC version-control, and deploy Databricks resources — jobs, pipelines, dashboards, and more —
+# MAGIC version-control, and deploy Databricks resources — jobs, dashboards, and more —
 # MAGIC as **code**.
 # MAGIC
 # MAGIC The core file is `databricks.yml` at the root of this repository.
@@ -471,8 +439,7 @@ display(df.head(5))
 # MAGIC     variables:
 # MAGIC       schema: lakeflow_lab       # prod writes to lakeflow_lab
 # MAGIC
-# MAGIC resources:        # Declare pipelines, dashboards, jobs, etc. here
-# MAGIC   pipelines: ...
+# MAGIC resources:        # Declare dashboards, jobs, etc. here
 # MAGIC   dashboards: ...
 # MAGIC   jobs: ...
 # MAGIC ```
@@ -502,8 +469,7 @@ display(df.head(5))
 # MAGIC > **What you'll see:** The exported YAML has a similar structure to
 # MAGIC > `resources/job_definition_template.yml` — tasks, `depends_on`, parameters, schedules,
 # MAGIC > and notification settings are all represented as YAML keys.  The export includes the
-# MAGIC > job definition but not the pipeline or dashboard resources — you'll add those from
-# MAGIC > the template.
+# MAGIC > job definition but not the dashboard resource — you'll add that from the template.
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -522,13 +488,13 @@ display(df.head(5))
 # MAGIC ### Step 5c — Fill in `databricks.yml`
 # MAGIC
 # MAGIC Right now `databricks.yml` has an empty `resources:` section.  Your task is to add
-# MAGIC three resource definitions: a pipeline, a dashboard, and a job.
+# MAGIC two resource definitions: a dashboard and a job.
 # MAGIC
 # MAGIC You can either:
 # MAGIC - **Use the annotated template** in `resources/job_definition_template.yml` — copy
 # MAGIC   everything from `resources:` onward and paste it into `databricks.yml`
 # MAGIC - **Build it yourself** using the exported YAML from Step 5a as a starting point,
-# MAGIC   adding the pipeline and dashboard resources manually
+# MAGIC   adding the dashboard resource manually
 # MAGIC
 # MAGIC When complete, the full `databricks.yml` should look like:
 # MAGIC
@@ -557,17 +523,6 @@ display(df.head(5))
 # MAGIC       schema: lakeflow_lab
 # MAGIC
 # MAGIC resources:
-# MAGIC
-# MAGIC   pipelines:
-# MAGIC     medallion_pipeline:
-# MAGIC       name: "Lakeflow Lab - Medallion Pipeline [${bundle.target}]"
-# MAGIC       catalog: ${var.catalog}
-# MAGIC       target: ${var.schema}
-# MAGIC       configuration:
-# MAGIC         volume_path: /Volumes/${var.catalog}/${var.schema}/raw_data
-# MAGIC       libraries:
-# MAGIC         - file:
-# MAGIC             path: ./pipeline/medallion_pipeline.py
 # MAGIC
 # MAGIC   dashboards:
 # MAGIC     sales_dashboard:
@@ -601,31 +556,30 @@ display(df.head(5))
 # MAGIC             notebook_path: ./validation/source_validation_notebook
 # MAGIC             source: WORKSPACE
 # MAGIC
-# MAGIC         - task_key: run_pipeline
+# MAGIC         - task_key: run_etl
 # MAGIC           depends_on:
 # MAGIC             - task_key: validate_source
-# MAGIC           pipeline_task:
-# MAGIC             pipeline_id: ${resources.pipelines.medallion_pipeline.id}
+# MAGIC           notebook_task:
+# MAGIC             notebook_path: ./pipeline/medallion_notebook
+# MAGIC             source: WORKSPACE
 # MAGIC
 # MAGIC         - task_key: refresh_dashboard
 # MAGIC           depends_on:
-# MAGIC             - task_key: run_pipeline
+# MAGIC             - task_key: run_etl
 # MAGIC           dashboard_task:
 # MAGIC             dashboard_id: ${resources.dashboards.sales_dashboard.id}
 # MAGIC ```
 # MAGIC
 # MAGIC **Things to notice:**
-# MAGIC - The **pipeline resource** sets `catalog` and `target` (schema) using bundle variables —
-# MAGIC   deploying to `dev` writes tables to `lakeflow_lab_dev`; deploying to `prod` writes
-# MAGIC   to `lakeflow_lab`
+# MAGIC - `${var.schema}` in the job parameter default is resolved at **deploy time** — deploying
+# MAGIC   to `dev` bakes in `lakeflow_lab_dev`; deploying to `prod` bakes in `lakeflow_lab`
+# MAGIC - Job parameters are then pushed down automatically to both notebook tasks at **run time**
 # MAGIC - The **dashboard resource** defaults to the prod `.lvdash.json` file, but the `dev`
 # MAGIC   target overrides `file_path` to use `sales_dashboard_dev.lvdash.json` — which
 # MAGIC   queries `lakeflow_lab_dev` tables.  This means the dev job refreshes a dev
 # MAGIC   dashboard, and the prod job refreshes a prod dashboard.
-# MAGIC - The **job's pipeline task** references the pipeline by ID using
-# MAGIC   `${resources.pipelines.medallion_pipeline.id}` — DABs resolves this automatically
-# MAGIC - The **job's dashboard task** similarly references
-# MAGIC   `${resources.dashboards.sales_dashboard.id}`
+# MAGIC - The **job's dashboard task** references the dashboard by ID using
+# MAGIC   `${resources.dashboards.sales_dashboard.id}` — DABs resolves this automatically
 # MAGIC - Replace `your-email@example.com` with your actual email address
 # MAGIC
 # MAGIC ### Step 5d — Validate the bundle
@@ -652,9 +606,9 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### What does `bundle deploy` do?
 # MAGIC
-# MAGIC 1. **Syncs files** — uploads your pipeline code, dashboard definition, and notebooks
+# MAGIC 1. **Syncs files** — uploads your notebooks and dashboard definition
 # MAGIC    to the workspace under `${workspace.root_path}/files/`
-# MAGIC 2. **Creates or updates resources** — creates the pipeline, dashboard, and job in your
+# MAGIC 2. **Creates or updates resources** — creates the dashboard and job in your
 # MAGIC    workspace (or updates them if they already exist)
 # MAGIC 3. **Prefixes names** — in `dev` mode, resource names are prefixed with
 # MAGIC    `[dev your@email.com]` so your dev resources don't collide with colleagues'
@@ -665,8 +619,8 @@ display(df.head(5))
 # MAGIC databricks bundle deploy --target dev
 # MAGIC ```
 # MAGIC
-# MAGIC You should see output confirming that files were uploaded and three resources were
-# MAGIC created or updated (pipeline, dashboard, job).  Once it completes, proceed to Part 7.
+# MAGIC You should see output confirming that files were uploaded and two resources were
+# MAGIC created or updated (dashboard, job).  Once it completes, proceed to Part 7.
 
 # COMMAND ----------
 
@@ -679,7 +633,7 @@ display(df.head(5))
 # MAGIC 1. Click **Jobs & Pipelines** in the left sidebar
 # MAGIC 2. Find **`[dev your@email.com] Lakeflow Lab - Orchestration Job [dev]`** and open it
 # MAGIC 3. Click the **Tasks** tab — you should see three tasks connected by arrows:
-# MAGIC    `validate_source` → `run_pipeline` → `refresh_dashboard`
+# MAGIC    `validate_source` → `run_etl` → `refresh_dashboard`
 # MAGIC 4. Click the **Parameters** tab — confirm `schema` defaults to `lakeflow_lab_dev`
 # MAGIC    (the dev target variable was baked in at deploy time)
 # MAGIC
@@ -687,8 +641,8 @@ display(df.head(5))
 # MAGIC
 # MAGIC Click **Run now** and watch the tasks execute one at a time.  This run:
 # MAGIC - Validates the source data in `workspace.lakeflow_lab_dev`
-# MAGIC - Runs the medallion pipeline writing to `workspace.lakeflow_lab_dev`
-# MAGIC - Refreshes the sales dashboard
+# MAGIC - Runs the medallion ETL writing to `workspace.lakeflow_lab_dev`
+# MAGIC - Refreshes the dev sales dashboard
 
 # COMMAND ----------
 
@@ -710,7 +664,7 @@ display(df.head(5))
 # MAGIC
 # MAGIC > **Note:** The prod target has no `mode: development`, so resource names are not
 # MAGIC > prefixed and the resources will be visible to everyone with access to the workspace.
-# MAGIC > Make sure the pipeline is working correctly before promoting.
+# MAGIC > Make sure everything is working correctly before promoting.
 
 # COMMAND ----------
 
@@ -722,23 +676,23 @@ display(df.head(5))
 # MAGIC
 # MAGIC ```
 # MAGIC  Git Repository
-# MAGIC  ├── databricks.yml              (bundle config — pipelines, dashboards, jobs)
+# MAGIC  ├── databricks.yml              (bundle config — dashboards, jobs)
 # MAGIC  ├── pipeline/
-# MAGIC  │   └── medallion_pipeline.py   (DLT: bronze → silver → gold)
+# MAGIC  │   └── medallion_notebook.py   (ETL: bronze → silver → gold)
 # MAGIC  ├── validation/
 # MAGIC  │   └── source_validation_notebook.py
 # MAGIC  └── dashboards/
-# MAGIC      └── sales_dashboard.lvdash.json
+# MAGIC      ├── sales_dashboard.lvdash.json       (prod)
+# MAGIC      └── sales_dashboard_dev.lvdash.json   (dev)
 # MAGIC
 # MAGIC  databricks bundle deploy --target dev   → schema = lakeflow_lab_dev
 # MAGIC  databricks bundle deploy --target prod  → schema = lakeflow_lab
 # MAGIC  └── Creates:
-# MAGIC        Pipeline  : Lakeflow Lab - Medallion Pipeline
 # MAGIC        Dashboard : Lakeflow Lab - Sales Dashboard
 # MAGIC        Job       : Lakeflow Lab - Orchestration Job
 # MAGIC          │
 # MAGIC          ├── Task 1: validate_source   (notebook — pre-flight gate)
-# MAGIC          ├── Task 2: run_pipeline       (pipeline — medallion ETL)
+# MAGIC          ├── Task 2: run_etl            (notebook — medallion ETL)
 # MAGIC          └── Task 3: refresh_dashboard  (dashboard — update visuals)
 # MAGIC ```
 # MAGIC
@@ -748,9 +702,9 @@ display(df.head(5))
 # MAGIC   Azure DevOps on every merge to `main` for fully automated promotion
 # MAGIC - **Staging target** — add a third `staging` target between dev and prod with its own
 # MAGIC   schema, giving you a three-tier promotion pipeline
-# MAGIC - **Fan-out dependencies** — add a second downstream task that also `depends_on: run_pipeline`
-# MAGIC   to run two tasks in parallel after the pipeline completes
-# MAGIC - **More task types** — add a SQL query task or a dbt task to the job to see how
-# MAGIC   Lakeflow Jobs can orchestrate diverse workloads in a single DAG
+# MAGIC - **Fan-out dependencies** — add a second downstream task that also `depends_on: run_etl`
+# MAGIC   to run two tasks in parallel after the ETL completes
+# MAGIC - **More task types** — add a DLT pipeline task, SQL query task, or dbt task to the
+# MAGIC   job to see how Lakeflow Jobs can orchestrate diverse workloads in a single DAG
 
 # COMMAND ----------
