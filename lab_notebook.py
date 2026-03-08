@@ -410,6 +410,11 @@ display(df.head(5))
 # MAGIC ---
 # MAGIC ## Part 5 — Databricks Asset Bundles: From Dev to Prod as Code
 # MAGIC
+# MAGIC > **Note:** The instructions below use the **Databricks CLI** to validate, deploy, and
+# MAGIC > run bundles from the terminal.  If you don't have the repo cloned locally or the CLI
+# MAGIC > set up on your machine, don't worry — we'll also walk through how to perform DAB
+# MAGIC > deployments directly in the **Databricks workspace UI** during the live session.
+# MAGIC
 # MAGIC ### What is a Databricks Asset Bundle?
 # MAGIC
 # MAGIC You just built a working dev job by hand in the UI.  Now imagine doing that again
