@@ -109,7 +109,36 @@ for SCHEMA in SCHEMAS:
     df.to_csv(volume_path, index=False)
     print(f"  Schema  : {CATALOG}.{SCHEMA}")
     print(f"  Volume  : {CATALOG}.{SCHEMA}.{VOLUME}")
-    print(f"  Written : {volume_path}\n")
+    print(f"  Written : {volume_path}")
+
+    # Pre-create empty tables so the dashboard can be published with working visualizations.
+    # The ETL notebooks will overwrite these on first run.
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.bronze_orders (
+            order_id STRING, customer_id STRING, product STRING, category STRING,
+            quantity STRING, unit_price STRING, order_date STRING, region STRING, status STRING
+        ) USING DELTA
+    """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.silver_orders (
+            order_id STRING, customer_id STRING, product STRING, category STRING,
+            quantity INT, unit_price DOUBLE, order_date DATE, region STRING, status STRING,
+            total_amount DOUBLE, year_month STRING
+        ) USING DELTA
+    """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.gold_sales_by_region (
+            region STRING, year_month STRING, total_revenue DOUBLE,
+            order_count LONG, avg_order_value DOUBLE, unique_customers LONG
+        ) USING DELTA
+    """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {CATALOG}.{SCHEMA}.gold_top_products (
+            product STRING, category STRING, total_revenue DOUBLE,
+            total_units_sold LONG, order_count LONG, avg_unit_price DOUBLE
+        ) USING DELTA
+    """)
+    print(f"  Tables  : bronze_orders, silver_orders, gold_sales_by_region, gold_top_products (empty placeholders)\n")
 
 print("Sample rows:")
 display(df.head(5))
@@ -128,8 +157,8 @@ display(df.head(5))
 # MAGIC 4. Click **Publish** in the top-right corner to make it available as a job task
 # MAGIC
 # MAGIC > **Note:** This dashboard queries `workspace.lakeflow_lab_dev` (the dev schema).
-# MAGIC > The tables won't exist until the ETL notebooks run for the first time, so the dashboard
-# MAGIC > will show empty or error states until then — that's expected.
+# MAGIC > The tables are empty until the ETL notebooks run, so the dashboard will show zeros
+# MAGIC > initially — that's expected. It will populate after the first job run.
 
 # COMMAND ----------
 
