@@ -23,13 +23,6 @@
       "layout": [
         {
           "widget": {
-            "name": "title",
-            "textbox_spec": "# Sales Dashboard\nKey metrics from the Lakeflow Lab medallion pipeline"
-          },
-          "position": {"x": 0, "y": 0, "width": 6, "height": 1}
-        },
-        {
-          "widget": {
             "name": "total_revenue_counter",
             "queries": [
               {
@@ -44,17 +37,21 @@
               }
             ],
             "spec": {
-              "version": 3,
+              "version": 2,
               "widgetType": "counter",
               "encodings": {
                 "value": {
                   "fieldName": "total_revenue",
                   "displayName": "Total Revenue"
                 }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Revenue"
               }
             }
           },
-          "position": {"x": 0, "y": 1, "width": 2, "height": 2}
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
         },
         {
           "widget": {
@@ -72,17 +69,21 @@
               }
             ],
             "spec": {
-              "version": 3,
+              "version": 2,
               "widgetType": "counter",
               "encodings": {
                 "value": {
                   "fieldName": "total_orders",
                   "displayName": "Total Orders"
                 }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Orders"
               }
             }
           },
-          "position": {"x": 2, "y": 1, "width": 2, "height": 2}
+          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
         },
         {
           "widget": {
@@ -100,17 +101,21 @@
               }
             ],
             "spec": {
-              "version": 3,
+              "version": 2,
               "widgetType": "counter",
               "encodings": {
                 "value": {
                   "fieldName": "avg_order_value",
                   "displayName": "Avg Order Value"
                 }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Order Value"
               }
             }
           },
-          "position": {"x": 4, "y": 1, "width": 2, "height": 2}
+          "position": {"x": 4, "y": 0, "width": 2, "height": 2}
         },
         {
           "widget": {
@@ -122,14 +127,14 @@
                   "datasetName": "region_sales",
                   "fields": [
                     {"name": "region", "expression": "`region`"},
-                    {"name": "total_revenue", "expression": "SUM(`total_revenue`)"}
+                    {"name": "total_revenue", "expression": "`total_revenue`"}
                   ],
                   "disaggregated": false
                 }
               }
             ],
             "spec": {
-              "version": 3,
+              "version": 2,
               "widgetType": "bar",
               "encodings": {
                 "x": {
@@ -142,10 +147,14 @@
                   "scale": {"type": "quantitative"},
                   "displayName": "Total Revenue"
                 }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue by Region"
               }
             }
           },
-          "position": {"x": 0, "y": 3, "width": 3, "height": 4}
+          "position": {"x": 0, "y": 2, "width": 3, "height": 4}
         },
         {
           "widget": {
@@ -157,30 +166,78 @@
                   "datasetName": "region_sales",
                   "fields": [
                     {"name": "year_month", "expression": "`year_month`"},
-                    {"name": "total_revenue", "expression": "SUM(`total_revenue`)"}
+                    {"name": "total_revenue", "expression": "`total_revenue`"}
                   ],
                   "disaggregated": false
                 }
               }
             ],
             "spec": {
-              "version": 3,
+              "version": 2,
               "widgetType": "line",
               "encodings": {
                 "x": {
                   "fieldName": "year_month",
-                  "scale": {"type": "categorical"},
+                  "scale": {"type": "temporal"},
                   "displayName": "Month"
                 },
                 "y": {
                   "fieldName": "total_revenue",
                   "scale": {"type": "quantitative"},
                   "displayName": "Revenue"
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {"type": "categorical"},
+                  "displayName": "Region"
                 }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly Revenue Trend"
               }
             }
           },
-          "position": {"x": 3, "y": 3, "width": 3, "height": 4}
+          "position": {"x": 3, "y": 2, "width": 3, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "orders_by_region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "region_sales",
+                  "fields": [
+                    {"name": "region", "expression": "`region`"},
+                    {"name": "unique_customers", "expression": "`unique_customers`"}
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region",
+                  "scale": {"type": "categorical"},
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "unique_customers",
+                  "scale": {"type": "quantitative"},
+                  "displayName": "Unique Customers"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unique Customers by Region"
+              }
+            }
+          },
+          "position": {"x": 0, "y": 6, "width": 3, "height": 4}
         },
         {
           "widget": {
@@ -202,20 +259,24 @@
               }
             ],
             "spec": {
-              "version": 3,
+              "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  {"fieldName": "product", "displayName": "Product"},
-                  {"fieldName": "category", "displayName": "Category"},
-                  {"fieldName": "total_revenue", "displayName": "Revenue"},
-                  {"fieldName": "total_units_sold", "displayName": "Units Sold"},
-                  {"fieldName": "order_count", "displayName": "Orders"}
+                  {"fieldName": "product", "displayName": "Product", "type": "string"},
+                  {"fieldName": "category", "displayName": "Category", "type": "string"},
+                  {"fieldName": "total_revenue", "displayName": "Revenue", "type": "number"},
+                  {"fieldName": "total_units_sold", "displayName": "Units Sold", "type": "number"},
+                  {"fieldName": "order_count", "displayName": "Orders", "type": "number"}
                 ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top Products"
               }
             }
           },
-          "position": {"x": 0, "y": 7, "width": 6, "height": 4}
+          "position": {"x": 3, "y": 6, "width": 3, "height": 4}
         }
       ]
     }
