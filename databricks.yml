@@ -9,7 +9,11 @@ variables:
     default: lakeflow_lab
     description: The schema (database) to use for lab tables
   warehouse_id:
+    default: <TO DO: find the warehouse ID in the UI>
     description: The SQL warehouse ID for the dashboard task (find under SQL Warehouses in the UI)
+  dashboard_file_path:
+    default: ./dashboards/sales_dashboard.lvdash.json
+    description: The path to the dashboard definition file
 
 targets:
   dev:
@@ -17,6 +21,7 @@ targets:
     default: true
     variables:
       schema: lakeflow_lab_dev   # dev writes to its own isolated schema
+      dashboard_file_path: ./dashboards/sales_dashboard_dev.lvdash.json
 
   prod:
     variables:

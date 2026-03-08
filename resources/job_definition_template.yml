@@ -54,7 +54,8 @@ resources:
   dashboards:
     sales_dashboard:
       display_name: "Lakeflow Lab - Sales Dashboard [${bundle.target}]"
-      file_path: ./dashboards/sales_dashboard.lvdash.json
+      file_path: ${var.dashboard_file_path}
+      warehouse_id: ${var.warehouse_id}
 
   # ---------------------------------------------------------------------------
   # Job -- Lakeflow Orchestration Job
@@ -109,7 +110,7 @@ resources:
         # -----------------------------------------------------------------------
         - task_key: run_bronze
           notebook_task:
-            notebook_path: ./pipeline/bronze_notebook
+            notebook_path: ./pipeline/bronze_notebook.py
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
@@ -122,7 +123,7 @@ resources:
           depends_on:
             - task_key: run_bronze
           notebook_task:
-            notebook_path: ./pipeline/silver_notebook
+            notebook_path: ./pipeline/silver_notebook.py
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
@@ -136,7 +137,7 @@ resources:
           depends_on:
             - task_key: run_silver
           notebook_task:
-            notebook_path: ./pipeline/gold_sales_notebook
+            notebook_path: ./pipeline/gold_sales_notebook.py
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
@@ -150,7 +151,7 @@ resources:
           depends_on:
             - task_key: run_silver
           notebook_task:
-            notebook_path: ./pipeline/gold_products_notebook
+            notebook_path: ./pipeline/gold_products_notebook.py
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
