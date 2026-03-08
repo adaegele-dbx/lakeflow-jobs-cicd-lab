@@ -4,16 +4,10 @@
 # Copy the YAML below (starting at "resources:") and paste it into
 # databricks.yml, replacing the existing empty "resources:" key.
 #
-# ALSO add the per-target dashboard override to the existing "targets:"
-# section so the dev job refreshes a dev dashboard (querying lakeflow_lab_dev):
-#
-#   targets:
-#     dev:
-#       ...
-#       resources:                              # <- add this block
-#         dashboards:
-#           sales_dashboard:
-#             file_path: ./dashboards/sales_dashboard_dev.lvdash.json
+# The dashboard file_path and warehouse_id use ${var.*} references that are
+# already defined in databricks.yml. The dev target overrides
+# dashboard_file_path to sales_dashboard_dev.lvdash.json so the dev dashboard
+# queries lakeflow_lab_dev tables.
 #
 # This defines two resource types and a five-task Lakeflow Job:
 #
@@ -48,8 +42,8 @@ resources:
   #
   # Visualizes the gold-layer tables produced by the ETL notebooks.
   # The dashboard definition lives in dashboards/sales_dashboard.lvdash.json.
-  # The dev target overrides file_path to sales_dashboard_dev.lvdash.json
-  # so the dev dashboard queries lakeflow_lab_dev tables.
+  # file_path uses ${var.dashboard_file_path} so the dev target can override
+  # it to sales_dashboard_dev.lvdash.json (which queries lakeflow_lab_dev).
   # ---------------------------------------------------------------------------
   dashboards:
     sales_dashboard:

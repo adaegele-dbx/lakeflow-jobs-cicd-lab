@@ -427,7 +427,10 @@ display(df.head(5))
 # MAGIC   schema:
 # MAGIC     default: lakeflow_lab
 # MAGIC   warehouse_id:
+# MAGIC     default: <TO DO: find the warehouse ID in the UI>
 # MAGIC     description: SQL warehouse ID for the dashboard task
+# MAGIC   dashboard_file_path:
+# MAGIC     default: ./dashboards/sales_dashboard.lvdash.json
 # MAGIC
 # MAGIC targets:
 # MAGIC   dev:
@@ -435,6 +438,7 @@ display(df.head(5))
 # MAGIC     default: true
 # MAGIC     variables:
 # MAGIC       schema: lakeflow_lab_dev   # dev writes to lakeflow_lab_dev
+# MAGIC       dashboard_file_path: ./dashboards/sales_dashboard_dev.lvdash.json
 # MAGIC   prod:
 # MAGIC     variables:
 # MAGIC       schema: lakeflow_lab       # prod writes to lakeflow_lab
@@ -478,9 +482,10 @@ display(df.head(5))
 # MAGIC
 # MAGIC Open `databricks.yml` from the file tree on the left (click the file to view it).
 # MAGIC
-# MAGIC Notice it already has a `variables` section (`catalog`, `schema`, `warehouse_id`) and a
-# MAGIC `targets` section with both `dev` and `prod` entries.  The `dev` target overrides `schema`
-# MAGIC to `lakeflow_lab_dev`; the `prod` target inherits the default `lakeflow_lab`.
+# MAGIC Notice it already has a `variables` section (`catalog`, `schema`, `warehouse_id`,
+# MAGIC `dashboard_file_path`) and a `targets` section with both `dev` and `prod` entries.
+# MAGIC The `dev` target overrides `schema` to `lakeflow_lab_dev` and `dashboard_file_path` to
+# MAGIC the dev dashboard; the `prod` target inherits the defaults.
 # MAGIC Your task in Step 5c is to fill in the empty `resources:` section.
 
 # COMMAND ----------
@@ -506,31 +511,36 @@ display(df.head(5))
 # MAGIC variables:
 # MAGIC   catalog:
 # MAGIC     default: workspace
+# MAGIC     description: The Unity Catalog catalog to deploy resources into
 # MAGIC   schema:
 # MAGIC     default: lakeflow_lab
+# MAGIC     description: The schema (database) to use for lab tables
 # MAGIC   warehouse_id:
-# MAGIC     description: SQL warehouse ID for the dashboard task
+# MAGIC     default: <TO DO: find the warehouse ID in the UI>
+# MAGIC     description: The SQL warehouse ID for the dashboard task (find under SQL Warehouses in the UI)
+# MAGIC   dashboard_file_path:
+# MAGIC     default: ./dashboards/sales_dashboard.lvdash.json
+# MAGIC     description: The path to the dashboard definition file
 # MAGIC
 # MAGIC targets:
 # MAGIC   dev:
 # MAGIC     mode: development
 # MAGIC     default: true
 # MAGIC     variables:
-# MAGIC       schema: lakeflow_lab_dev
-# MAGIC     resources:                              # per-target resource overrides
-# MAGIC       dashboards:
-# MAGIC         sales_dashboard:
-# MAGIC           file_path: ./dashboards/sales_dashboard_dev.lvdash.json
+# MAGIC       schema: lakeflow_lab_dev   # dev writes to its own isolated schema
+# MAGIC       dashboard_file_path: ./dashboards/sales_dashboard_dev.lvdash.json
+# MAGIC
 # MAGIC   prod:
 # MAGIC     variables:
-# MAGIC       schema: lakeflow_lab
+# MAGIC       schema: lakeflow_lab       # prod writes to the canonical schema
 # MAGIC
 # MAGIC resources:
 # MAGIC
 # MAGIC   dashboards:
 # MAGIC     sales_dashboard:
 # MAGIC       display_name: "Lakeflow Lab - Sales Dashboard [${bundle.target}]"
-# MAGIC       file_path: ./dashboards/sales_dashboard.lvdash.json
+# MAGIC       file_path: ${var.dashboard_file_path}
+# MAGIC       warehouse_id: ${var.warehouse_id}
 # MAGIC
 # MAGIC   jobs:
 # MAGIC     lakeflow_lab_job:
@@ -554,28 +564,28 @@ display(df.head(5))
 # MAGIC
 # MAGIC         - task_key: run_bronze
 # MAGIC           notebook_task:
-# MAGIC             notebook_path: ./pipeline/bronze_notebook
+# MAGIC             notebook_path: ./pipeline/bronze_notebook.py
 # MAGIC             source: WORKSPACE
 # MAGIC
 # MAGIC         - task_key: run_silver
 # MAGIC           depends_on:
 # MAGIC             - task_key: run_bronze
 # MAGIC           notebook_task:
-# MAGIC             notebook_path: ./pipeline/silver_notebook
+# MAGIC             notebook_path: ./pipeline/silver_notebook.py
 # MAGIC             source: WORKSPACE
 # MAGIC
 # MAGIC         - task_key: run_gold_sales
 # MAGIC           depends_on:
 # MAGIC             - task_key: run_silver
 # MAGIC           notebook_task:
-# MAGIC             notebook_path: ./pipeline/gold_sales_notebook
+# MAGIC             notebook_path: ./pipeline/gold_sales_notebook.py
 # MAGIC             source: WORKSPACE
 # MAGIC
 # MAGIC         - task_key: run_gold_products
 # MAGIC           depends_on:
 # MAGIC             - task_key: run_silver
 # MAGIC           notebook_task:
-# MAGIC             notebook_path: ./pipeline/gold_products_notebook
+# MAGIC             notebook_path: ./pipeline/gold_products_notebook.py
 # MAGIC             source: WORKSPACE
 # MAGIC
 # MAGIC         - task_key: refresh_dashboard
@@ -590,9 +600,11 @@ display(df.head(5))
 # MAGIC - `${var.schema}` in the job parameter default is resolved at **deploy time** — deploying
 # MAGIC   to `dev` bakes in `lakeflow_lab_dev`; deploying to `prod` bakes in `lakeflow_lab`
 # MAGIC - Job parameters are pushed down automatically to all notebook tasks at **run time**
-# MAGIC - The **dashboard resource** defaults to the prod `.lvdash.json` file, but the `dev`
-# MAGIC   target overrides `file_path` to use `sales_dashboard_dev.lvdash.json` — which
-# MAGIC   queries `lakeflow_lab_dev` tables
+# MAGIC - The **dashboard resource** uses `${var.dashboard_file_path}` — the `dev` target
+# MAGIC   overrides this variable to `sales_dashboard_dev.lvdash.json` (which queries
+# MAGIC   `lakeflow_lab_dev` tables), while prod uses the default `sales_dashboard.lvdash.json`
+# MAGIC - The dashboard also uses `warehouse_id: ${var.warehouse_id}` — replace the TODO
+# MAGIC   placeholder in `databricks.yml` with your actual warehouse ID
 # MAGIC - The **job's dashboard task** references the dashboard by ID using
 # MAGIC   `${resources.dashboards.sales_dashboard.id}` — DABs resolves this automatically
 # MAGIC - Replace `your-email@example.com` with your actual email address
@@ -606,13 +618,18 @@ display(df.head(5))
 # MAGIC
 # MAGIC From the terminal, `cd` to your Git Folder root if needed, then run:
 # MAGIC
-# MAGIC ```bash
-# MAGIC databricks bundle validate --target prod --var warehouse_id=<your-warehouse-id>
-# MAGIC ```
+# MAGIC First, update the `warehouse_id` variable in `databricks.yml` — replace the
+# MAGIC `<TO DO: find the warehouse ID in the UI>` placeholder with your actual warehouse ID.
 # MAGIC
 # MAGIC > **Finding your warehouse ID:** Go to **SQL Warehouses** in the sidebar, click on a
 # MAGIC > warehouse, and copy the ID from the URL or the **Connection details** tab.
-# MAGIC >
+# MAGIC
+# MAGIC Then validate:
+# MAGIC
+# MAGIC ```bash
+# MAGIC databricks bundle validate --target prod
+# MAGIC ```
+# MAGIC
 # MAGIC > **Why `--target prod`?** You already have a working dev job from Part 4.  Now you're
 # MAGIC > using DABs to deploy the same pipeline to prod — targeting `workspace.lakeflow_lab`.
 # MAGIC
@@ -637,7 +654,7 @@ display(df.head(5))
 # MAGIC In the same terminal you opened in Step 5d, run:
 # MAGIC
 # MAGIC ```bash
-# MAGIC databricks bundle deploy --target prod --var warehouse_id=<your-warehouse-id>
+# MAGIC databricks bundle deploy --target prod
 # MAGIC ```
 # MAGIC
 # MAGIC You should see output confirming that files were uploaded and two resources were
