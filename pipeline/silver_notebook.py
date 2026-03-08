@@ -30,7 +30,7 @@ bronze_count = bronze_df.count()
 typed_df = (
     bronze_df
     .withColumn("quantity",    col("quantity").cast(IntegerType()))
-    .withColumn("unit_price",  col("unit_price").cast(DoubleType()))
+    .withColumn("unit_price",  col("unit_prce").cast(DoubleType()))   # BUG: typo — fix by changing "unit_prce" to "unit_price"
     .withColumn("order_date",  to_date(col("order_date"), "yyyy-MM-dd"))
     .withColumn("total_amount", col("quantity") * col("unit_price"))
     .withColumn("year_month",  date_format(col("order_date"), "yyyy-MM"))
