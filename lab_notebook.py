@@ -12,14 +12,14 @@
 # MAGIC
 # MAGIC | Step | What you'll do |
 # MAGIC |------|----------------|
-# MAGIC | **Setup** | Create Unity Catalog schemas, volumes, and sample data; publish a dashboard; create a SQL alert |
+# MAGIC | **Setup** | Create Unity Catalog schemas, volumes, and sample data; publish a dashboard |
 # MAGIC | **Part 1** | Explore the **four medallion ETL notebooks** (bronze, silver, gold sales, gold products) |
 # MAGIC | **Part 2** | Explore the **sales dashboard** |
 # MAGIC | **Part 3** | Learn **Lakeflow Jobs** concepts — task types, parameters, dependencies, and fan-out/fan-in DAGs |
-# MAGIC | **Part 4** | Build the six-task job in the **Databricks Jobs UI** and run a first test |
+# MAGIC | **Part 4** | Build the five-task job in the **Databricks Jobs UI** targeting **dev** and run a first test |
 # MAGIC | **Part 5** | Learn **Databricks Asset Bundles (DABs)**, configure dev and prod targets, fill in `databricks.yml` |
-# MAGIC | **Part 6** | Deploy to **dev** with `databricks bundle deploy` from the terminal |
-# MAGIC | **Part 7** | Run the bundle-managed job and promote to **prod** |
+# MAGIC | **Part 6** | Deploy to **prod** with `databricks bundle deploy` from the terminal |
+# MAGIC | **Part 7** | Run the bundle-managed **prod** job and compare both environments |
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -117,80 +117,19 @@ display(df.head(5))
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Setup — Publish the Sales Dashboard
+# MAGIC ### Setup — Publish the Dev Sales Dashboard
 # MAGIC
-# MAGIC Create the dashboard that the job will refresh as one of its tasks.
+# MAGIC Create the **dev** dashboard that the manual job will refresh.  (The prod dashboard
+# MAGIC will be deployed automatically by Databricks Asset Bundles in Part 6.)
 # MAGIC
 # MAGIC 1. In the workspace file browser, navigate to your Git folder
 # MAGIC 2. Open the `dashboards/` folder
-# MAGIC 3. Click on **`sales_dashboard.lvdash.json`** — Databricks opens it as a dashboard
+# MAGIC 3. Click on **`sales_dashboard_dev.lvdash.json`** — Databricks opens it as a dashboard
 # MAGIC 4. Click **Publish** in the top-right corner to make it available as a job task
 # MAGIC
-# MAGIC > **Note:** The dashboard queries reference `workspace.lakeflow_lab` (the prod schema).
+# MAGIC > **Note:** This dashboard queries `workspace.lakeflow_lab_dev` (the dev schema).
 # MAGIC > The tables won't exist until the ETL notebooks run for the first time, so the dashboard
 # MAGIC > will show empty or error states until then — that's expected.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Setup — Create the Pipeline Health Alert
-# MAGIC
-# MAGIC Create a SQL alert that the job will evaluate as its final task.  If the pipeline
-# MAGIC data is unhealthy, the alert fires and notifies you.
-# MAGIC
-# MAGIC **1. Create a new SQL query:**
-# MAGIC
-# MAGIC 1. Click **SQL Editor** in the left sidebar
-# MAGIC 2. Click **+** → **Create new query**
-# MAGIC 3. Name the query: **`Pipeline Health Check`**
-# MAGIC 4. Paste the following SQL and run it (select any SQL warehouse):
-# MAGIC
-# MAGIC ```sql
-# MAGIC SELECT
-# MAGIC   current_timestamp()                              AS checked_at,
-# MAGIC   b.cnt                                            AS bronze_rows,
-# MAGIC   s.cnt                                            AS silver_rows,
-# MAGIC   ROUND(s.cnt / NULLIF(b.cnt, 0) * 100, 1)        AS quality_pass_pct,
-# MAGIC   gr.cnt                                           AS gold_region_rows,
-# MAGIC   gp.cnt                                           AS gold_product_rows,
-# MAGIC   ROUND(gr.revenue, 2)                             AS total_revenue,
-# MAGIC   CASE
-# MAGIC     WHEN b.cnt = 0           THEN 'EMPTY SOURCE'
-# MAGIC     WHEN s.cnt / b.cnt < 0.5 THEN 'HIGH DROP RATE'
-# MAGIC     ELSE 'HEALTHY'
-# MAGIC   END                                              AS pipeline_status
-# MAGIC FROM
-# MAGIC   (SELECT COUNT(*) AS cnt FROM workspace.lakeflow_lab.bronze_orders) b,
-# MAGIC   (SELECT COUNT(*) AS cnt FROM workspace.lakeflow_lab.silver_orders) s,
-# MAGIC   (SELECT COUNT(*) AS cnt, SUM(total_revenue) AS revenue
-# MAGIC    FROM workspace.lakeflow_lab.gold_sales_by_region) gr,
-# MAGIC   (SELECT COUNT(*) AS cnt FROM workspace.lakeflow_lab.gold_top_products) gp
-# MAGIC ```
-# MAGIC
-# MAGIC > **Note:** The query will fail right now because the tables don't exist yet — that's
-# MAGIC > expected.  Save it anyway; the alert will work once the ETL runs in Part 4.
-# MAGIC
-# MAGIC **2. Create the alert:**
-# MAGIC
-# MAGIC 1. Click **Alerts** in the left sidebar
-# MAGIC 2. Click **+ Create alert**
-# MAGIC 3. Select the **`Pipeline Health Check`** query you just saved
-# MAGIC 4. Configure the alert condition:
-# MAGIC    - **Column:** `pipeline_status`
-# MAGIC    - **Condition:** **is not equal to**
-# MAGIC    - **Value:** `HEALTHY`
-# MAGIC 5. Name the alert: **`Pipeline Health Alert`**
-# MAGIC 6. Under **Destinations**, add your email address as a notification destination
-# MAGIC 7. Click **Create alert**
-# MAGIC
-# MAGIC > **How it works:** When the job evaluates this alert task, it re-runs the query and
-# MAGIC > checks the condition.  If `pipeline_status` is anything other than `HEALTHY`, the alert
-# MAGIC > triggers and sends you a notification.  If the pipeline is healthy, it completes silently.
-# MAGIC
-# MAGIC **3. Copy the alert ID** — you'll need this in Parts 4 and 5:
-# MAGIC
-# MAGIC Open the alert you just created.  The alert ID is in the URL:
-# MAGIC `https://<workspace>/sql/alerts/<alert-id>`.  Copy it and save it for later.
 
 # COMMAND ----------
 
@@ -205,7 +144,7 @@ display(df.head(5))
 # MAGIC the job will orchestrate:
 # MAGIC
 # MAGIC ```
-# MAGIC  /Volumes/workspace/lakeflow_lab/raw_data/orders.csv
+# MAGIC  /Volumes/workspace/lakeflow_lab_dev/raw_data/orders.csv
 # MAGIC           |
 # MAGIC           v   Bronze
 # MAGIC  +------------------+
@@ -257,12 +196,12 @@ display(df.head(5))
 # MAGIC ---
 # MAGIC ## Part 2 — The Sales Dashboard
 # MAGIC
-# MAGIC **File:** `dashboards/sales_dashboard.lvdash.json`
+# MAGIC **File:** `dashboards/sales_dashboard_dev.lvdash.json`
 # MAGIC
-# MAGIC You published this dashboard in the Setup step above.  Open it from the workspace
+# MAGIC You published this dev dashboard in the Setup step above.  Open it from the workspace
 # MAGIC sidebar or click the `.lvdash.json` file again.
 # MAGIC
-# MAGIC The dashboard queries the **gold-layer tables** produced by the ETL notebooks:
+# MAGIC The dashboard queries the **gold-layer tables** in the dev schema (`lakeflow_lab_dev`):
 # MAGIC
 # MAGIC | Widget | Source table | What it shows |
 # MAGIC |--------|-------------|---------------|
@@ -273,9 +212,12 @@ display(df.head(5))
 # MAGIC | Revenue Trend chart | `gold_sales_by_region` | Monthly revenue trend line |
 # MAGIC | Top Products table | `gold_top_products` | Product performance ranked by revenue |
 # MAGIC
-# MAGIC > **Note:** The dashboard shows empty/error states right now because the gold tables
+# MAGIC > **Note:** The dashboard shows empty/error states right now because the dev gold tables
 # MAGIC > don't exist yet.  They'll be populated when the ETL notebooks run for the first time
 # MAGIC > in Part 4.
+# MAGIC
+# MAGIC There's also a `sales_dashboard.lvdash.json` for prod (queries `lakeflow_lab`) — you'll
+# MAGIC deploy that automatically via Databricks Asset Bundles in Part 6.
 
 # COMMAND ----------
 
@@ -288,16 +230,15 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### Task Types
 # MAGIC
-# MAGIC A Lakeflow Job can orchestrate many different task types.  Our job uses three:
+# MAGIC A Lakeflow Job can orchestrate many different task types.  Our job uses two:
 # MAGIC
 # MAGIC | Task type | What it does | Our tasks |
 # MAGIC |-----------|-------------|----------|
 # MAGIC | **Notebook** | Runs a notebook with parameters via `dbutils.widgets` | `run_bronze`, `run_silver`, `run_gold_sales`, `run_gold_products` |
 # MAGIC | **Dashboard** | Refreshes an AI/BI Lakeview dashboard | `refresh_dashboard` |
-# MAGIC | **SQL alert** | Evaluates a SQL alert and notifies if the condition is met | `check_pipeline_health` |
 # MAGIC
-# MAGIC Other task types you might use in production: pipelines (DLT), dbt projects, JAR
-# MAGIC tasks, Python scripts, and even other jobs (via `run_job` tasks).
+# MAGIC Other task types you might use in production: pipelines (DLT), SQL queries, SQL alerts,
+# MAGIC dbt projects, JAR tasks, Python scripts, and even other jobs (via `run_job` tasks).
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -318,12 +259,12 @@ display(df.head(5))
 # MAGIC > deploying to `dev` automatically targets `lakeflow_lab_dev`, and deploying to `prod`
 # MAGIC > automatically targets `lakeflow_lab`.
 # MAGIC
-# MAGIC In our job we'll declare two parameters:
+# MAGIC In our manual dev job we'll declare two parameters:
 # MAGIC
 # MAGIC | Parameter | Default | Purpose |
 # MAGIC |-----------|---------|---------|
 # MAGIC | `catalog` | `workspace` | Unity Catalog catalog name |
-# MAGIC | `schema` | `lakeflow_lab` | Unity Catalog schema name |
+# MAGIC | `schema` | `lakeflow_lab_dev` | Unity Catalog schema name (dev environment) |
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -346,9 +287,6 @@ display(df.head(5))
 # MAGIC    \      /                       <-- fan-in: both must finish before next
 # MAGIC     v    v
 # MAGIC  refresh_dashboard  (dashboard)
-# MAGIC       |
-# MAGIC       v
-# MAGIC  check_pipeline_health  (SQL alert)
 # MAGIC ```
 # MAGIC
 # MAGIC **Key behaviors:**
@@ -363,25 +301,25 @@ display(df.head(5))
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 4 — Build the Job in the Databricks Jobs UI
+# MAGIC ## Part 4 — Build the Dev Job in the Databricks Jobs UI
 # MAGIC
-# MAGIC Now you'll create the six-task job by hand in the UI.  This gives you a feel for
-# MAGIC the job structure before you see it expressed as code in Part 5.
+# MAGIC Now you'll create the five-task job by hand in the UI, targeting the **dev**
+# MAGIC environment.  This gives you a feel for the job structure before you codify it
+# MAGIC with Databricks Asset Bundles and promote to prod in Parts 5-7.
 # MAGIC
-# MAGIC The dashboard was already published during Setup — you'll reference it by name
+# MAGIC The dev dashboard was already published during Setup — you'll reference it by name
 # MAGIC when adding the dashboard task.
 # MAGIC
 # MAGIC ### Step 4a — Create a new job
 # MAGIC
 # MAGIC 1. Click **Jobs & Pipelines** in the left sidebar, then the **Jobs** tab
 # MAGIC 2. Click **Create job**
-# MAGIC 3. Name the job: **`Lakeflow Lab - Orchestration Job`**
+# MAGIC 3. Name the job: **`Lakeflow Lab - Orchestration Job [dev]`**
 # MAGIC
-# MAGIC ### Step 4b — Add the six tasks
+# MAGIC ### Step 4b — Add the five tasks
 # MAGIC
 # MAGIC Add each task in order.  For notebook tasks, set **Source: Workspace** and browse
 # MAGIC to the notebook path.  For the dashboard task, select the published dashboard.
-# MAGIC For the SQL task, paste the query and select a SQL warehouse.
 # MAGIC
 # MAGIC | Task key | Type | Configuration | Depends on |
 # MAGIC |----------|------|---------------|------------|
@@ -389,16 +327,11 @@ display(df.head(5))
 # MAGIC | `run_silver` | **Notebook** | Path: `./pipeline/silver_notebook` | `run_bronze` |
 # MAGIC | `run_gold_sales` | **Notebook** | Path: `./pipeline/gold_sales_notebook` | `run_silver` |
 # MAGIC | `run_gold_products` | **Notebook** | Path: `./pipeline/gold_products_notebook` | `run_silver` |
-# MAGIC | `refresh_dashboard` | **Dashboard** | Select: `Lakeflow Lab - Sales Dashboard` | `run_gold_sales`, `run_gold_products` |
-# MAGIC | `check_pipeline_health` | **SQL alert** | Select: `Pipeline Health Alert`; select a SQL warehouse | `refresh_dashboard` |
+# MAGIC | `refresh_dashboard` | **Dashboard** | Select the dev dashboard you published in Setup | `run_gold_sales`, `run_gold_products` |
 # MAGIC
 # MAGIC > **Tip:** When wiring dependencies, notice that both gold tasks depend on `run_silver`
 # MAGIC > (fan-out) and `refresh_dashboard` depends on **both** gold tasks (fan-in).  The canvas
 # MAGIC > should show a diamond shape in the middle.
-# MAGIC
-# MAGIC > **SQL alert task:** When adding this task, select the **SQL** task type, then choose
-# MAGIC > **Alert** (not Query).  Select the **`Pipeline Health Alert`** you created during Setup
-# MAGIC > and choose a SQL warehouse to run it on.
 # MAGIC
 # MAGIC ### Step 4c — Add job parameters, schedule, and notifications
 # MAGIC
@@ -407,7 +340,7 @@ display(df.head(5))
 # MAGIC | Name | Default value |
 # MAGIC |------|---------------|
 # MAGIC | `catalog` | `workspace` |
-# MAGIC | `schema` | `lakeflow_lab` |
+# MAGIC | `schema` | `lakeflow_lab_dev` |
 # MAGIC
 # MAGIC **Schedule — run daily at 6 AM:**
 # MAGIC 1. Click the **Schedules & Triggers** tab
@@ -422,36 +355,38 @@ display(df.head(5))
 # MAGIC
 # MAGIC ### Step 4d — Verify the DAG
 # MAGIC
-# MAGIC Click the **Tasks** canvas.  You should see six boxes with a diamond-shaped fan-out/
+# MAGIC Click the **Tasks** canvas.  You should see five boxes with a diamond-shaped fan-out/
 # MAGIC fan-in pattern: `run_bronze` → `run_silver` → two gold tasks in parallel →
-# MAGIC `refresh_dashboard` → `check_pipeline_health`.
+# MAGIC `refresh_dashboard`.
 # MAGIC
 # MAGIC ### Step 4e — Run the job
 # MAGIC
 # MAGIC Click **Run now** to trigger a test run.  Watch the progression:
 # MAGIC
-# MAGIC 1. `run_bronze` runs first — ingests CSV into `bronze_orders`
-# MAGIC 2. `run_silver` runs next — cleanses and transforms into `silver_orders`
+# MAGIC 1. `run_bronze` runs first — ingests CSV into `lakeflow_lab_dev.bronze_orders`
+# MAGIC 2. `run_silver` runs next — cleanses and transforms into `lakeflow_lab_dev.silver_orders`
 # MAGIC 3. `run_gold_sales` and `run_gold_products` run **in parallel** — fan-out!
-# MAGIC 4. `refresh_dashboard` waits for both golds, then refreshes the dashboard — fan-in!
-# MAGIC 5. `check_pipeline_health` evaluates the SQL alert — if healthy, it passes silently;
-# MAGIC    if unhealthy, it triggers a notification to your email
+# MAGIC 4. `refresh_dashboard` waits for both golds, then refreshes the dev dashboard — fan-in!
 # MAGIC
-# MAGIC Once all six tasks show green checkmarks, open the Sales Dashboard to see
-# MAGIC the visualizations populated with data.  The alert task should show `HEALTHY` since
-# MAGIC the data is clean.  Proceed to Part 5.
+# MAGIC Once all five tasks show green checkmarks, open the dev Sales Dashboard to see
+# MAGIC the visualizations populated with data.
+# MAGIC
+# MAGIC > **What you've done so far:** You manually built a complete dev pipeline.  In Parts 5-7
+# MAGIC > you'll codify this as a Databricks Asset Bundle and promote it to **prod** — deploying
+# MAGIC > the same job definition against `workspace.lakeflow_lab` with a single CLI command.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 5 — Databricks Asset Bundles & Exporting to `databricks.yml`
+# MAGIC ## Part 5 — Databricks Asset Bundles: From Dev to Prod as Code
 # MAGIC
 # MAGIC ### What is a Databricks Asset Bundle?
 # MAGIC
-# MAGIC A **Databricks Asset Bundle (DAB)** is a YAML-based project format that lets you define,
-# MAGIC version-control, and deploy Databricks resources — jobs, dashboards, and more —
-# MAGIC as **code**.
+# MAGIC You just built a working dev job by hand in the UI.  Now imagine doing that again
+# MAGIC for prod — and again every time you change the pipeline.  **Databricks Asset Bundles
+# MAGIC (DABs)** solve this by letting you define jobs, dashboards, and more as YAML **code**
+# MAGIC that you can deploy to any environment with a single CLI command.
 # MAGIC
 # MAGIC The core file is `databricks.yml` at the root of this repository.
 # MAGIC
@@ -463,9 +398,7 @@ display(df.head(5))
 # MAGIC   schema:
 # MAGIC     default: lakeflow_lab
 # MAGIC   warehouse_id:
-# MAGIC     description: SQL warehouse ID for the alert task
-# MAGIC   alert_id:
-# MAGIC     description: SQL alert ID for the pipeline health check
+# MAGIC     description: SQL warehouse ID for the dashboard task
 # MAGIC
 # MAGIC targets:
 # MAGIC   dev:
@@ -506,8 +439,9 @@ display(df.head(5))
 # MAGIC
 # MAGIC > **What you'll see:** The exported YAML has a similar structure to
 # MAGIC > `resources/job_definition_template.yml` — tasks, `depends_on`, parameters, schedules,
-# MAGIC > and notification settings are all represented as YAML keys.  The export includes the
-# MAGIC > job definition but not the dashboard resource — you'll add that from the template.
+# MAGIC > and notification settings are all represented as YAML keys.  The export captures your
+# MAGIC > dev job definition — you'll generalize it with bundle variables so the same YAML works
+# MAGIC > for both dev and prod.
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -515,7 +449,7 @@ display(df.head(5))
 # MAGIC
 # MAGIC Open `databricks.yml` from the file tree on the left (click the file to view it).
 # MAGIC
-# MAGIC Notice it already has a `variables` section (`catalog`, `schema`, `warehouse_id`, `alert_id`) and a
+# MAGIC Notice it already has a `variables` section (`catalog`, `schema`, `warehouse_id`) and a
 # MAGIC `targets` section with both `dev` and `prod` entries.  The `dev` target overrides `schema`
 # MAGIC to `lakeflow_lab_dev`; the `prod` target inherits the default `lakeflow_lab`.
 # MAGIC Your task in Step 5c is to fill in the empty `resources:` section.
@@ -532,7 +466,7 @@ display(df.head(5))
 # MAGIC - **Use the annotated template** in `resources/job_definition_template.yml` — copy
 # MAGIC   everything from `resources:` onward and paste it into `databricks.yml`
 # MAGIC - **Build it yourself** using the exported YAML from Step 5a as a starting point,
-# MAGIC   adding the dashboard resource and alert task manually
+# MAGIC   adding the dashboard resource manually
 # MAGIC
 # MAGIC When complete, the full `databricks.yml` should look like:
 # MAGIC
@@ -546,9 +480,7 @@ display(df.head(5))
 # MAGIC   schema:
 # MAGIC     default: lakeflow_lab
 # MAGIC   warehouse_id:
-# MAGIC     description: SQL warehouse ID for the alert task
-# MAGIC   alert_id:
-# MAGIC     description: SQL alert ID for the pipeline health check
+# MAGIC     description: SQL warehouse ID for the dashboard task
 # MAGIC
 # MAGIC targets:
 # MAGIC   dev:
@@ -623,14 +555,6 @@ display(df.head(5))
 # MAGIC             - task_key: run_gold_products
 # MAGIC           dashboard_task:
 # MAGIC             dashboard_id: ${resources.dashboards.sales_dashboard.id}
-# MAGIC
-# MAGIC         - task_key: check_pipeline_health
-# MAGIC           depends_on:
-# MAGIC             - task_key: refresh_dashboard
-# MAGIC           sql_task:
-# MAGIC             warehouse_id: ${var.warehouse_id}
-# MAGIC             alert:
-# MAGIC               alert_id: ${var.alert_id}
 # MAGIC ```
 # MAGIC
 # MAGIC **Things to notice:**
@@ -642,11 +566,6 @@ display(df.head(5))
 # MAGIC   queries `lakeflow_lab_dev` tables
 # MAGIC - The **job's dashboard task** references the dashboard by ID using
 # MAGIC   `${resources.dashboards.sales_dashboard.id}` — DABs resolves this automatically
-# MAGIC - The **alert task** references the SQL alert by ID using `${var.alert_id}` — this is
-# MAGIC   the alert you created during Setup, which checks pipeline health and notifies you
-# MAGIC   if the data is unhealthy
-# MAGIC - The alert task needs a `warehouse_id` and `alert_id` — you'll provide these when
-# MAGIC   validating the bundle
 # MAGIC - Replace `your-email@example.com` with your actual email address
 # MAGIC
 # MAGIC ### Step 5d — Validate the bundle
@@ -659,13 +578,14 @@ display(df.head(5))
 # MAGIC From the terminal, `cd` to your Git Folder root if needed, then run:
 # MAGIC
 # MAGIC ```bash
-# MAGIC databricks bundle validate --target dev \
-# MAGIC   --var warehouse_id=<your-warehouse-id> \
-# MAGIC   --var alert_id=<your-alert-id>
+# MAGIC databricks bundle validate --target prod --var warehouse_id=<your-warehouse-id>
 # MAGIC ```
 # MAGIC
 # MAGIC > **Finding your warehouse ID:** Go to **SQL Warehouses** in the sidebar, click on a
 # MAGIC > warehouse, and copy the ID from the URL or the **Connection details** tab.
+# MAGIC >
+# MAGIC > **Why `--target prod`?** You already have a working dev job from Part 4.  Now you're
+# MAGIC > using DABs to deploy the same pipeline to prod — targeting `workspace.lakeflow_lab`.
 # MAGIC
 # MAGIC A valid bundle prints a JSON summary of the resolved resources with no errors.
 # MAGIC Fix any YAML errors flagged before proceeding.
@@ -674,7 +594,7 @@ display(df.head(5))
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 6 — Deploy to Dev with `databricks bundle deploy`
+# MAGIC ## Part 6 — Deploy to Prod with `databricks bundle deploy`
 # MAGIC
 # MAGIC ### What does `bundle deploy` do?
 # MAGIC
@@ -682,15 +602,13 @@ display(df.head(5))
 # MAGIC    to the workspace under `${workspace.root_path}/files/`
 # MAGIC 2. **Creates or updates resources** — creates the dashboard and job in your
 # MAGIC    workspace (or updates them if they already exist)
-# MAGIC 3. **Prefixes names** — in `dev` mode, resource names are prefixed with
-# MAGIC    `[dev your@email.com]` so your dev resources don't collide with colleagues'
+# MAGIC 3. **Resolves variables** — the `prod` target resolves `${var.schema}` to `lakeflow_lab`,
+# MAGIC    so the prod job writes to the canonical production schema
 # MAGIC
 # MAGIC In the same terminal you opened in Step 5d, run:
 # MAGIC
 # MAGIC ```bash
-# MAGIC databricks bundle deploy --target dev \
-# MAGIC   --var warehouse_id=<your-warehouse-id> \
-# MAGIC   --var alert_id=<your-alert-id>
+# MAGIC databricks bundle deploy --target prod --var warehouse_id=<your-warehouse-id>
 # MAGIC ```
 # MAGIC
 # MAGIC You should see output confirming that files were uploaded and two resources were
@@ -700,50 +618,49 @@ display(df.head(5))
 
 # MAGIC %md
 # MAGIC ---
-# MAGIC ## Part 7 — Run the Bundle Job & Promote to Prod
+# MAGIC ## Part 7 — Run the Prod Job & Compare Environments
 # MAGIC
-# MAGIC ### Explore the deployed job in the UI
+# MAGIC ### Explore the deployed prod job in the UI
 # MAGIC
 # MAGIC 1. Click **Jobs & Pipelines** in the left sidebar
-# MAGIC 2. Find **`[dev your@email.com] Lakeflow Lab - Orchestration Job [dev]`** and open it
-# MAGIC 3. Click the **Tasks** tab — you should see six tasks with the fan-out/fan-in diamond
-# MAGIC    pattern: `run_bronze` → `run_silver` → two gold tasks → `refresh_dashboard` →
-# MAGIC    `check_pipeline_health`
-# MAGIC 4. Click the **Parameters** tab — confirm `schema` defaults to `lakeflow_lab_dev`
-# MAGIC    (the dev target variable was baked in at deploy time)
+# MAGIC 2. Find **`Lakeflow Lab - Orchestration Job [prod]`** and open it
+# MAGIC 3. Click the **Tasks** tab — you should see five tasks with the fan-out/fan-in diamond
+# MAGIC    pattern: `run_bronze` → `run_silver` → two gold tasks → `refresh_dashboard`
+# MAGIC 4. Click the **Parameters** tab — confirm `schema` defaults to `lakeflow_lab`
+# MAGIC    (the prod target variable was baked in at deploy time)
 # MAGIC
-# MAGIC ### Run with the default parameters
+# MAGIC ### Run the prod job
 # MAGIC
-# MAGIC Click **Run now** and watch the tasks execute.  This run:
-# MAGIC - Ingests CSV into `workspace.lakeflow_lab_dev.bronze_orders`
-# MAGIC - Cleanses into `workspace.lakeflow_lab_dev.silver_orders`
+# MAGIC From the terminal:
+# MAGIC
+# MAGIC ```bash
+# MAGIC databricks bundle run lakeflow_lab_job --target prod
+# MAGIC ```
+# MAGIC
+# MAGIC Or click **Run now** in the UI.  This run:
+# MAGIC - Ingests CSV into `workspace.lakeflow_lab.bronze_orders`
+# MAGIC - Cleanses into `workspace.lakeflow_lab.silver_orders`
 # MAGIC - Fans out to build both gold tables in parallel
-# MAGIC - Refreshes the dev sales dashboard
-# MAGIC - Evaluates the pipeline health alert — passes silently if healthy
+# MAGIC - Refreshes the **prod** sales dashboard (deployed by DABs from `sales_dashboard.lvdash.json`)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Promote to prod
+# MAGIC ### Compare dev and prod
 # MAGIC
-# MAGIC Once you're satisfied the dev run is correct, deploy and run the job for the `prod`
-# MAGIC target.  The prod job writes to `workspace.lakeflow_lab` (no `[dev ...]` name prefix).
+# MAGIC You now have **two independent environments** running the same pipeline:
 # MAGIC
-# MAGIC In the terminal:
+# MAGIC | | Dev (manual, Part 4) | Prod (DABs, Part 6) |
+# MAGIC |---|---|---|
+# MAGIC | **Job name** | `Lakeflow Lab - Orchestration Job [dev]` | `Lakeflow Lab - Orchestration Job [prod]` |
+# MAGIC | **Schema** | `workspace.lakeflow_lab_dev` | `workspace.lakeflow_lab` |
+# MAGIC | **Dashboard** | Dev dashboard (published manually) | Prod dashboard (deployed by DABs) |
+# MAGIC | **Created by** | UI clicks | `databricks bundle deploy --target prod` |
 # MAGIC
-# MAGIC ```bash
-# MAGIC # Deploy all resources to the prod target
-# MAGIC databricks bundle deploy --target prod \
-# MAGIC   --var warehouse_id=<your-warehouse-id> \
-# MAGIC   --var alert_id=<your-alert-id>
-# MAGIC
-# MAGIC # Run the job with the default parameters
-# MAGIC databricks bundle run lakeflow_lab_job --target prod
-# MAGIC ```
-# MAGIC
-# MAGIC > **Note:** The prod target has no `mode: development`, so resource names are not
-# MAGIC > prefixed and the resources will be visible to everyone with access to the workspace.
-# MAGIC > Make sure everything is working correctly before promoting.
+# MAGIC > **Key insight:** The dev job was built manually for quick iteration.  The prod job
+# MAGIC > was deployed from code — version-controlled, repeatable, and promotable through a CI/CD
+# MAGIC > pipeline.  In a real workflow, you'd iterate in dev, then run
+# MAGIC > `databricks bundle deploy --target prod` (or trigger it from CI) to promote.
 
 # COMMAND ----------
 
@@ -765,7 +682,7 @@ display(df.head(5))
 # MAGIC      ├── sales_dashboard.lvdash.json       (prod)
 # MAGIC      └── sales_dashboard_dev.lvdash.json   (dev)
 # MAGIC
-# MAGIC  databricks bundle deploy --target dev   → schema = lakeflow_lab_dev
+# MAGIC  Manual (Part 4)  → dev job → schema = lakeflow_lab_dev
 # MAGIC  databricks bundle deploy --target prod  → schema = lakeflow_lab
 # MAGIC  └── Creates:
 # MAGIC        Dashboard : Lakeflow Lab - Sales Dashboard
@@ -773,14 +690,15 @@ display(df.head(5))
 # MAGIC          │
 # MAGIC          ├── Task 1: run_bronze          (notebook — raw ingestion)
 # MAGIC          ├── Task 2: run_silver          (notebook — cleanse & transform)
-# MAGIC          ├── Task 3: run_gold_sales      (notebook — regional aggs)  ← parallel
+# MAGIC          ├── Task 3: run_gold_sales      (notebook — regional aggs)   ← parallel
 # MAGIC          ├── Task 4: run_gold_products   (notebook — product aggs)   ← parallel
-# MAGIC          ├── Task 5: refresh_dashboard         (dashboard — update visuals)
-# MAGIC          └── Task 6: check_pipeline_health   (SQL alert — data quality gate)
+# MAGIC          └── Task 5: refresh_dashboard   (dashboard — update visuals)
 # MAGIC ```
 # MAGIC
 # MAGIC ### What to explore next
 # MAGIC
+# MAGIC - **DABs for dev too** — run `databricks bundle deploy --target dev` to manage the dev
+# MAGIC   environment with DABs as well, replacing the manual job from Part 4
 # MAGIC - **CI/CD pipeline** — trigger `bundle deploy --target prod` from GitHub Actions or
 # MAGIC   Azure DevOps on every merge to `main` for fully automated promotion
 # MAGIC - **Staging target** — add a third `staging` target between dev and prod with its own

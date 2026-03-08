@@ -9,9 +9,7 @@ variables:
     default: lakeflow_lab
     description: The schema (database) to use for lab tables
   warehouse_id:
-    description: The SQL warehouse ID for the alert task (find under SQL Warehouses in the UI)
-  alert_id:
-    description: The SQL alert ID for the pipeline health check (created during Setup)
+    description: The SQL warehouse ID for the dashboard task (find under SQL Warehouses in the UI)
 
 targets:
   dev:

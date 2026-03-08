@@ -7,7 +7,7 @@ A hands-on lab for learning how to build, orchestrate, and deploy data pipelines
 By the end of this lab you will have:
 - A **four-notebook medallion ETL** implementing the full bronze / silver / gold architecture
 - An **AI/BI Lakeview dashboard** that visualizes the gold-layer data
-- A **six-task Lakeflow Job** using notebook, dashboard, and SQL alert task types with a fan-out/fan-in DAG
+- A **five-task Lakeflow Job** using notebook and dashboard task types with a fan-out/fan-in DAG
 - Everything packaged and deployed via **Databricks Asset Bundles** for CI/CD
 
 ## Prerequisites
@@ -56,14 +56,14 @@ lakeflow-jobs-and-ci-cd/
 
 | Part | Topic |
 |------|-------|
-| **Setup** | Create schemas, volumes, generate sample data, publish dashboard, and create a SQL alert |
+| **Setup** | Create schemas, volumes, generate sample data, and publish dev dashboard |
 | **Part 1** | Explore the four medallion ETL notebooks (bronze, silver, gold x2) |
 | **Part 2** | Explore the sales dashboard |
 | **Part 3** | Lakeflow Jobs concepts — task types, parameters, dependencies, and fan-out/fan-in |
-| **Part 4** | Build the six-task job in the Databricks Jobs UI |
+| **Part 4** | Build the five-task job in the Databricks Jobs UI targeting **dev** |
 | **Part 5** | Databricks Asset Bundles — define resources in `databricks.yml` |
-| **Part 6** | Deploy with `databricks bundle deploy` |
-| **Part 7** | Run the bundle job and promote to prod |
+| **Part 6** | Deploy to **prod** with `databricks bundle deploy` |
+| **Part 7** | Run the prod job and compare both environments |
 
 ## Job Task DAG
 
@@ -78,8 +78,5 @@ run_gold_sales    run_gold_products
 (notebook task)   (notebook task)
   \      /
    v    v
-refresh_dashboard        (dashboard task)
-     │
-     v
-check_pipeline_health    (SQL alert task)
+refresh_dashboard   (dashboard task)
 ```

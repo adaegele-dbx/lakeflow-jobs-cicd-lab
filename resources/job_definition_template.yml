@@ -15,7 +15,7 @@
 #           sales_dashboard:
 #             file_path: ./dashboards/sales_dashboard_dev.lvdash.json
 #
-# This defines two resource types and a six-task Lakeflow Job:
+# This defines two resource types and a five-task Lakeflow Job:
 #
 #   Resources:
 #     - Dashboard (AI/BI Lakeview dashboard -- sales visualizations)
@@ -34,18 +34,11 @@
 #        \    /
 #         v  v
 #     refresh_dashboard  (dashboard task)
-#          |
-#          v
-#     check_pipeline_health  (SQL alert task)
 #
 # Job-level parameters (catalog, schema) are pushed down automatically
 # to notebook tasks -- no per-task configuration needed.
 # catalog and schema use ${var.*} so the correct environment schema is
 # selected automatically based on the target (dev or prod).
-#
-# The alert task requires:
-#   - warehouse_id variable -- the ID of a SQL warehouse in your workspace
-#   - alert_id variable -- the ID of the SQL alert created during Setup
 # =============================================================================
 
 resources:
@@ -66,13 +59,12 @@ resources:
   # ---------------------------------------------------------------------------
   # Job -- Lakeflow Orchestration Job
   #
-  # Six tasks, three task types:
-  #   1. Notebook task  -- run_bronze (raw CSV ingestion)
-  #   2. Notebook task  -- run_silver (cleanse & transform)
-  #   3. Notebook task  -- run_gold_sales (regional aggregations)
-  #   4. Notebook task  -- run_gold_products (product aggregations)
-  #   5. Dashboard task -- refresh_dashboard (update visualizations)
-  #   6. SQL alert task -- check_pipeline_health (evaluate data quality alert)
+  # Five tasks, two task types:
+  #   1. Notebook task   -- run_bronze (raw CSV ingestion)
+  #   2. Notebook task   -- run_silver (cleanse & transform)
+  #   3. Notebook task   -- run_gold_sales (regional aggregations)
+  #   4. Notebook task   -- run_gold_products (product aggregations)
+  #   5. Dashboard task  -- refresh_dashboard (update visualizations)
   # ---------------------------------------------------------------------------
   jobs:
     lakeflow_lab_job:
@@ -173,19 +165,3 @@ resources:
             - task_key: run_gold_products
           dashboard_task:
             dashboard_id: ${resources.dashboards.sales_dashboard.id}
-
-        # -----------------------------------------------------------------------
-        # Task 6 -- Check pipeline health (SQL alert task)
-        #
-        # depends_on: refresh_dashboard
-        # Evaluates a SQL alert that checks row counts and quality metrics.
-        # If the pipeline is unhealthy (empty source, high drop rate), the
-        # alert fires and sends a notification to subscribed users.
-        # -----------------------------------------------------------------------
-        - task_key: check_pipeline_health
-          depends_on:
-            - task_key: refresh_dashboard
-          sql_task:
-            warehouse_id: ${var.warehouse_id}
-            alert:
-              alert_id: ${var.alert_id}
