@@ -5,10 +5,9 @@ A hands-on lab for learning how to build, orchestrate, and deploy data pipelines
 ## What You'll Build
 
 By the end of this lab you will have:
-- A **medallion ETL notebook** implementing the full bronze / silver / gold architecture
-- A **source validation notebook** that gates the ETL with a pre-flight check
+- A **four-notebook medallion ETL** implementing the full bronze / silver / gold architecture
 - An **AI/BI Lakeview dashboard** that visualizes the gold-layer data
-- A **three-task Lakeflow Job** using notebook and dashboard task types
+- A **six-task Lakeflow Job** using notebook, dashboard, and SQL alert task types with a fan-out/fan-in DAG
 - Everything packaged and deployed via **Databricks Asset Bundles** for CI/CD
 
 ## Prerequisites
@@ -40,10 +39,10 @@ lakeflow-jobs-and-ci-cd/
 ├── lab_notebook.py                    # Central lab notebook — START HERE
 │
 ├── pipeline/
-│   └── medallion_notebook.py          # ETL notebook (bronze → silver → gold)
-│
-├── validation/
-│   └── source_validation_notebook.py  # Task 1: pre-flight gate; demonstrates job parameters
+│   ├── bronze_notebook.py             # Task 1: raw CSV ingestion → bronze_orders
+│   ├── silver_notebook.py             # Task 2: cleanse & transform → silver_orders
+│   ├── gold_sales_notebook.py         # Task 3: regional aggregations → gold_sales_by_region
+│   └── gold_products_notebook.py      # Task 4: product aggregations → gold_top_products
 │
 ├── dashboards/
 │   ├── sales_dashboard.lvdash.json      # AI/BI dashboard — queries prod (lakeflow_lab)
@@ -57,11 +56,11 @@ lakeflow-jobs-and-ci-cd/
 
 | Part | Topic |
 |------|-------|
-| **Setup** | Create schemas, volumes, generate sample data, and publish dashboard |
-| **Part 1** | Explore the medallion ETL notebook (bronze, silver, gold) |
-| **Part 2** | Explore the validation notebook and sales dashboard |
-| **Part 3** | Lakeflow Jobs concepts — task types, parameters, and dependencies |
-| **Part 4** | Build the three-task job in the Databricks Jobs UI |
+| **Setup** | Create schemas, volumes, generate sample data, publish dashboard, and create a SQL alert |
+| **Part 1** | Explore the four medallion ETL notebooks (bronze, silver, gold x2) |
+| **Part 2** | Explore the sales dashboard |
+| **Part 3** | Lakeflow Jobs concepts — task types, parameters, dependencies, and fan-out/fan-in |
+| **Part 4** | Build the six-task job in the Databricks Jobs UI |
 | **Part 5** | Databricks Asset Bundles — define resources in `databricks.yml` |
 | **Part 6** | Deploy with `databricks bundle deploy` |
 | **Part 7** | Run the bundle job and promote to prod |
@@ -69,12 +68,18 @@ lakeflow-jobs-and-ci-cd/
 ## Job Task DAG
 
 ```
-validate_source    (notebook task)
-     │  depends_on: —
-     ▼
-run_etl            (notebook task)
-     │  depends_on: validate_source
-     ▼
-refresh_dashboard  (dashboard task)
-     depends_on: run_etl
+run_bronze          (notebook task)
+     │
+     v
+run_silver          (notebook task)
+   /    \
+  v      v
+run_gold_sales    run_gold_products
+(notebook task)   (notebook task)
+  \      /
+   v    v
+refresh_dashboard        (dashboard task)
+     │
+     v
+check_pipeline_health    (SQL alert task)
 ```

@@ -10,56 +10,70 @@
 #   targets:
 #     dev:
 #       ...
-#       resources:                              # ← add this block
+#       resources:                              # <- add this block
 #         dashboards:
 #           sales_dashboard:
 #             file_path: ./dashboards/sales_dashboard_dev.lvdash.json
 #
-# This defines two resource types and a three-task Lakeflow Job:
+# This defines two resource types and a six-task Lakeflow Job:
 #
 #   Resources:
-#     - Dashboard (AI/BI Lakeview dashboard — sales visualizations)
-#     - Job       (Lakeflow Job — orchestrates everything)
+#     - Dashboard (AI/BI Lakeview dashboard -- sales visualizations)
+#     - Job       (Lakeflow Job -- orchestrates everything)
 #
-#   Job task DAG:
+#   Job task DAG (fan-out / fan-in):
 #
-#     validate_source    (notebook task)
-#          │
-#          ▼
-#     run_etl            (notebook task)
-#          │
-#          ▼
+#     run_bronze         (notebook task)
+#          |
+#          v
+#     run_silver         (notebook task)
+#        /    \
+#       v      v
+#     run_gold_sales   run_gold_products
+#     (notebook task)  (notebook task)
+#        \    /
+#         v  v
 #     refresh_dashboard  (dashboard task)
+#          |
+#          v
+#     check_pipeline_health  (SQL alert task)
 #
-# Job-level parameters (run_date, catalog, schema) are pushed down
-# automatically to notebook tasks — no per-task configuration needed.
+# Job-level parameters (catalog, schema) are pushed down automatically
+# to notebook tasks -- no per-task configuration needed.
 # catalog and schema use ${var.*} so the correct environment schema is
 # selected automatically based on the target (dev or prod).
+#
+# The alert task requires:
+#   - warehouse_id variable -- the ID of a SQL warehouse in your workspace
+#   - alert_id variable -- the ID of the SQL alert created during Setup
 # =============================================================================
 
 resources:
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Dashboard — AI/BI Lakeview Dashboard
+  # ---------------------------------------------------------------------------
+  # Dashboard -- AI/BI Lakeview Dashboard
   #
-  # Visualizes the gold-layer tables produced by the ETL notebook.
+  # Visualizes the gold-layer tables produced by the ETL notebooks.
   # The dashboard definition lives in dashboards/sales_dashboard.lvdash.json.
   # The dev target overrides file_path to sales_dashboard_dev.lvdash.json
   # so the dev dashboard queries lakeflow_lab_dev tables.
-  # ─────────────────────────────────────────────────────────────────────────
+  # ---------------------------------------------------------------------------
   dashboards:
     sales_dashboard:
       display_name: "Lakeflow Lab - Sales Dashboard [${bundle.target}]"
       file_path: ./dashboards/sales_dashboard.lvdash.json
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Job — Lakeflow Orchestration Job
+  # ---------------------------------------------------------------------------
+  # Job -- Lakeflow Orchestration Job
   #
-  # Three tasks, two task types:
-  #   1. Notebook task  — validate_source (pre-flight gate)
-  #   2. Notebook task  — run_etl (medallion ETL: bronze → silver → gold)
-  #   3. Dashboard task — refresh_dashboard (update visualizations)
-  # ─────────────────────────────────────────────────────────────────────────
+  # Six tasks, three task types:
+  #   1. Notebook task  -- run_bronze (raw CSV ingestion)
+  #   2. Notebook task  -- run_silver (cleanse & transform)
+  #   3. Notebook task  -- run_gold_sales (regional aggregations)
+  #   4. Notebook task  -- run_gold_products (product aggregations)
+  #   5. Dashboard task -- refresh_dashboard (update visualizations)
+  #   6. SQL alert task -- check_pipeline_health (evaluate data quality alert)
+  # ---------------------------------------------------------------------------
   jobs:
     lakeflow_lab_job:
       name: "Lakeflow Lab - Orchestration Job [${bundle.target}]"
@@ -71,25 +85,23 @@ resources:
       # Override at run time in the UI ("Run now with different parameters")
       # or via the CLI:
       #   databricks bundle run lakeflow_lab_job --target dev \
-      #     -p run_date=2024-02-15
+      #     -p catalog=workspace -p schema=lakeflow_lab_dev
       # -----------------------------------------------------------------------
       parameters:
-        - name: run_date
-          default: "2024-03-31"
         - name: catalog
           default: ${var.catalog}   # resolved at deploy time
         - name: schema
           default: ${var.schema}    # lakeflow_lab_dev (dev) or lakeflow_lab (prod)
 
       # -----------------------------------------------------------------------
-      # Schedule — runs daily at 6 AM UTC
+      # Schedule -- runs daily at 6 AM UTC
       # -----------------------------------------------------------------------
       schedule:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: "UTC"
 
       # -----------------------------------------------------------------------
-      # Notifications — email on failure
+      # Notifications -- email on failure
       # -----------------------------------------------------------------------
       email_notifications:
         on_failure:
@@ -98,38 +110,82 @@ resources:
       tasks:
 
         # -----------------------------------------------------------------------
-        # Task 1 — Validate source data (Notebook task)
+        # Task 1 -- Run Bronze (Notebook task)
         #
-        # No depends_on — this task starts immediately when the job runs.
-        # If it fails, all downstream tasks are automatically skipped.
+        # No depends_on -- this task starts immediately when the job runs.
+        # Ingests raw CSV from the source volume into bronze_orders.
         # -----------------------------------------------------------------------
-        - task_key: validate_source
+        - task_key: run_bronze
           notebook_task:
-            notebook_path: ./validation/source_validation_notebook
+            notebook_path: ./pipeline/bronze_notebook
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
-        # Task 2 — Run the medallion ETL (Notebook task)
+        # Task 2 -- Run Silver (Notebook task)
         #
-        # depends_on: validate_source
-        # Processes bronze → silver → gold in a single notebook.
+        # depends_on: run_bronze
+        # Cleanses, type-casts, deduplicates, and filters into silver_orders.
         # -----------------------------------------------------------------------
-        - task_key: run_etl
+        - task_key: run_silver
           depends_on:
-            - task_key: validate_source
+            - task_key: run_bronze
           notebook_task:
-            notebook_path: ./pipeline/medallion_notebook
+            notebook_path: ./pipeline/silver_notebook
             source: WORKSPACE
 
         # -----------------------------------------------------------------------
-        # Task 3 — Refresh the sales dashboard (Dashboard task)
+        # Task 3 -- Run Gold Sales (Notebook task)
         #
-        # depends_on: run_etl
-        # Refreshes the AI/BI dashboard so it reflects the latest data
-        # written by the ETL notebook.
+        # depends_on: run_silver
+        # Aggregates completed orders by region and month.
+        # Runs in PARALLEL with run_gold_products (fan-out).
+        # -----------------------------------------------------------------------
+        - task_key: run_gold_sales
+          depends_on:
+            - task_key: run_silver
+          notebook_task:
+            notebook_path: ./pipeline/gold_sales_notebook
+            source: WORKSPACE
+
+        # -----------------------------------------------------------------------
+        # Task 4 -- Run Gold Products (Notebook task)
+        #
+        # depends_on: run_silver
+        # Aggregates completed orders by product and category.
+        # Runs in PARALLEL with run_gold_sales (fan-out).
+        # -----------------------------------------------------------------------
+        - task_key: run_gold_products
+          depends_on:
+            - task_key: run_silver
+          notebook_task:
+            notebook_path: ./pipeline/gold_products_notebook
+            source: WORKSPACE
+
+        # -----------------------------------------------------------------------
+        # Task 5 -- Refresh the sales dashboard (Dashboard task)
+        #
+        # depends_on: run_gold_sales, run_gold_products (fan-in)
+        # Refreshes the AI/BI dashboard so it reflects the latest data.
         # -----------------------------------------------------------------------
         - task_key: refresh_dashboard
           depends_on:
-            - task_key: run_etl
+            - task_key: run_gold_sales
+            - task_key: run_gold_products
           dashboard_task:
             dashboard_id: ${resources.dashboards.sales_dashboard.id}
+
+        # -----------------------------------------------------------------------
+        # Task 6 -- Check pipeline health (SQL alert task)
+        #
+        # depends_on: refresh_dashboard
+        # Evaluates a SQL alert that checks row counts and quality metrics.
+        # If the pipeline is unhealthy (empty source, high drop rate), the
+        # alert fires and sends a notification to subscribed users.
+        # -----------------------------------------------------------------------
+        - task_key: check_pipeline_health
+          depends_on:
+            - task_key: refresh_dashboard
+          sql_task:
+            warehouse_id: ${var.warehouse_id}
+            alert:
+              alert_id: ${var.alert_id}
